@@ -11,3 +11,10 @@ __pycache__/
 *.tar*
 *.age
 *receipt.json
+*.png
+*.jpg
+*.log
+setup.json
+site.json
+authorized_keys
+known_hosts

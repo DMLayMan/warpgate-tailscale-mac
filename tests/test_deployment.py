@@ -27,7 +27,7 @@ class Configuration(unittest.TestCase):
 
     def test_input_rejects_config_injection(self):
         for changes in ({'domain':'x.com\nadmin off'},{'domain':'https://x.com'},
-                        {'acme_email':'x@y.com\nreverse_proxy x'},{'backend_port':True},
+                        {'acme_email':'x@example.com\nreverse_proxy x'},{'backend_port':True},
                         {'backend_port':443},{'public_ip':'not-an-ip'}):
             with self.subTest(changes=changes),tempfile.TemporaryDirectory() as d:
                 p=Path(d)/'site.json';p.write_text(json.dumps(self.site(**changes)))

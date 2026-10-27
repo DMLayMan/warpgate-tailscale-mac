@@ -32,5 +32,23 @@
       "url": "https://pkgs.tailscale.com/stable/tailscale_1.104.2_arm64.tgz",
       "sha256": "5776aaa901b5ef1916e66be5bb54b9f481cd399c9c28db123a8cab620efa237b"
     }
+  },
+  "tmux_macos": {
+    "version": "3.7c",
+    "minimum_macos": "15.0",
+    "arm64": {
+      "url": "https://github.com/tmux/tmux-builds/releases/download/v3.7c/tmux-3.7c-macos-arm64.tar.gz",
+      "sha256": "0a763dd0380aa980d239509654da1bc7455843706a3c050f6709c8cd2e13d12d",
+      "binary_sha256": "b4ef8b3be8e727c9d8b36e485cc5baeb7e4b373569b14e11673a7a7a282f1e0b"
+    },
+    "amd64": {
+      "url": "https://github.com/tmux/tmux-builds/releases/download/v3.7c/tmux-3.7c-macos-x86_64.tar.gz",
+      "sha256": "1c21f9ade964e4a539be05ffe3a4e95854ab76a0a9c4c05d0ffbe7fc6c4d783f",
+      "binary_sha256": "2e3a3db47d04cc1c990e0e562994bdb299a100514227e719f1c549e4a53712fd"
+    },
+    "licenses": {
+      "url": "https://github.com/tmux/tmux-builds/releases/download/v3.7c/LICENSES.tar.gz",
+      "sha256": "094905d3ba42397c65fecd817dc29736dd14bd35e75600441403a365125f47d1"
+    }
   }
 }

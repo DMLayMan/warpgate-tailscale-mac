@@ -17,14 +17,14 @@ flowchart LR
 |---|---|
 | DNS | 独立子域名 A 记录指向 VPS 公网 IPv4 |
 | VPS | Tailscale 节点；Warpgate 回环监听；Caddy 自动公网证书；账号、TOTP、角色、会话记录；凭据加密与备份 |
-| Mac | Tailscale 节点；专用非管理员账号；原生远程登录；仅接受来自 VPS tailnet IP 的网关公钥；关闭转发 |
+| Mac | Tailscale 节点；专用非管理员账号；原生远程登录；仅接受来自 VPS tailnet IP 的网关公钥；关闭转发；tmux 持久终端 |
 | 浏览器客户端 | 访问 HTTPS 域名，完成密码与 TOTP；不需要 SSH 私钥或 VPN 客户端 |
 
 ## 部署顺序
 
 1. [VPS 安装与启用](docs/VPS.md)：准备域名和 `local/site.json`，安装/登录 Tailscale，然后执行 VPS 安装器。先备份密钥，再启动 HTTPS 并完成管理员 TOTP。
 2. [Tailscale 网络权限](docs/TAILSCALE.md)：VPS 到指定 Mac 仅允许 TCP 22，移除与此边界冲突的宽泛规则。
-3. [远端 Mac 一次性配置](docs/MAC.md)：在真正的远端 Mac 上运行 `setup_mac.py`，不要在本地客户端运行。
+3. [远端 Mac 一次性配置](docs/MAC.md)：准备标准账号、网络及公钥后，在真正的远端 Mac 上运行 `setup_mac.py`，同一条命令默认安装 tmux 并配置自动恢复。不要在本地客户端运行。
 4. 从 Mac 可信渠道取得回执，在 Warpgate 登记主机公钥、建立 SSH Target，分配普通用户角色。
 5. [验收、备份和恢复](docs/OPERATIONS.md)：完成真实链路、撤权、重启和恢复验收后日常使用。
 
@@ -39,6 +39,12 @@ flowchart LR
 
 角色不会把同一个 Mac UID 变成多个隔离的系统用户。互不信任的人应使用不同 macOS 账号与文件权限。撤销角色会关闭连接，不能保证已经脱离 SSH 的后台任务停止。
 
+## 持久终端
+
+新增 Mac 后端默认带上：登录网页 → 点击对应 Target → 自动进入该账号的 `work` 会话。关闭网页或连接中断后任务继续留在远端；下次点同一目标即可恢复。`Ctrl+b` 后按 `d` 可主动分离，`remote-resume` 可手动恢复。
+
+安装器下载并校验锁定的官方 tmux **3.7c** macOS 包，支持 Apple Silicon / Intel，要求 **macOS 15+、Python 3.9+、账号使用 `/bin/zsh`**，无需 Homebrew。系统已有 tmux 和默认配置不会被替换。回滚方法、旧配置迁移及限制见 [持久会话说明](docs/SESSIONS.md)。tmux 不保证关机、重启或进程崩溃后的任务恢复。
+
 ## 验证与限制
 
 运行无需权限的配置测试：
@@ -46,6 +52,7 @@ flowchart LR
 ```sh
 python3 -m unittest discover -s tests -v
 bash -n scripts/backup-vps.sh scripts/check-vps.sh
+python3 scripts/check_tracked.py --history
 ```
 
 有编译好的 Warpgate 和 Caddy 时，可在临时目录运行真正的初始化、TLS、策略读回和私钥加密测试：

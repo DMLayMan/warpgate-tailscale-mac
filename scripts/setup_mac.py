@@ -10,7 +10,67 @@ import platform
 import pwd
 import re
 import subprocess
+import sys
 import tempfile
+
+PROJECT = Path(__file__).resolve().parents[1]
+
+def require_server(on_server):
+    if not on_server or platform.system() != 'Darwin' or os.geteuid() != 0:
+        raise ValueError('Requires remote Mac, root and explicit --on-server; never run on the client')
+
+def session_setup(account):
+    if account.pw_shell != '/bin/zsh':
+        raise ValueError('Automatic sessions require /bin/zsh; use --without-tmux or review the account shell')
+    lock = json.loads((PROJECT/'config/versions.lock.json').read_text())['tmux_macos']
+    if tuple(map(int, platform.mac_ver()[0].split('.')[:2])) < tuple(map(int, lock['minimum_macos'].split('.'))):
+        raise ValueError('Pinned tmux requires macOS 15 or later; use --without-tmux on older systems')
+    # Never run user shell files or a package manager as root. The helper source
+    # is passed directly because the target user may not traverse the checkout.
+    result = subprocess.run(
+        [sys.executable, '-c', (PROJECT/'scripts/mac_sessions.py').read_text()],
+        input=json.dumps({'on_server': True, 'user': account.pw_name, 'lock': lock}),
+        text=True, capture_output=True, check=True, timeout=300,
+        user=account.pw_uid, group=account.pw_gid, extra_groups=[], cwd='/',
+        env={'HOME': account.pw_dir, 'USER': account.pw_name, 'LOGNAME': account.pw_name,
+             'SHELL': '/bin/zsh', 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'LANG': 'en_US.UTF-8'})
+    return json.loads(result.stdout)
+
+def existing_matches(path, content, mode):
+    if path.is_symlink():
+        raise ValueError(f'Refusing symlink: {path}')
+    if not path.exists():
+        return False
+    st = path.stat()
+    if (not path.is_file() or st.st_nlink != 1 or st.st_uid != os.geteuid() or
+            (st.st_mode & 0o777) != mode or path.read_text() != content):
+        raise ValueError(f'Conflicting managed file: {path}; review migration manually')
+    return True
+
+def prepare_key_directory(path):
+    if path.is_symlink():
+        raise ValueError('Refusing authorized-key directory symlink')
+    path.mkdir(mode=0o755, exist_ok=True)
+    if path.stat().st_uid != os.geteuid() or path.stat().st_mode & 0o022:
+        raise ValueError('Authorized-key directory must be installer-owned and not writable by other users')
+    # mkdir(mode=755) alone is masked by an inherited umask, potentially making
+    # the public key unreadable to sshd after it switches to the target account.
+    path.chmod(0o755)
+
+def write_receipt(path, data):
+    if path.exists() and json.loads(path.read_text()) == data:
+        return
+    if path.exists():
+        fd, _ = tempfile.mkstemp(prefix=path.name+'.before-', dir=path.parent)
+        with os.fdopen(fd, 'wb') as out:
+            out.write(path.read_bytes())
+    fd, temporary = tempfile.mkstemp(prefix='.mac-receipt-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as out:
+            json.dump(data, out, indent=2); out.write('\n')
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 def tailnet(value):
     ip=ipaddress.ip_address(value)
@@ -43,19 +103,27 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--on-server',action='store_true')
     p.add_argument('--user',required=True)
-    p.add_argument('--gateway-key',required=True)
-    p.add_argument('--vps-tailnet-ip',required=True)
-    p.add_argument('--mac-tailnet-ip',required=True)
-    p.add_argument('--receipt',required=True)
+    p.add_argument('--gateway-key')
+    p.add_argument('--vps-tailnet-ip')
+    p.add_argument('--mac-tailnet-ip')
+    p.add_argument('--receipt')
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--without-tmux', action='store_true', help='Configure SSH only; do not change existing sessions')
+    mode.add_argument('--sessions-only', action='store_true', help='Add persistent sessions to an already prepared server account')
     args=p.parse_args()
-    if not args.on_server or platform.system()!='Darwin' or os.geteuid()!=0:
-        raise ValueError('Requires remote Mac, root and explicit --on-server; never run on the client')
-    vps=tailnet(args.vps_tailnet_ip);mac=tailnet(args.mac_tailnet_ip)
-    key=public_key(args.gateway_key)
+    require_server(args.on_server)
+    ssh_settings(args.user)
     account=pwd.getpwnam(args.user)
     if account.pw_uid<500: raise ValueError('A normal non-admin user account is required')
     membership=subprocess.check_output(['/usr/bin/dsmemberutil','checkmembership','-U',args.user,'-G','admin'],text=True)
     if 'not a member' not in membership: raise ValueError('Use a dedicated non-admin Mac account')
+    if args.sessions_only:
+        print('MAC_SESSIONS_CONFIGURED '+json.dumps(session_setup(account)))
+        return
+    if not all((args.gateway_key, args.vps_tailnet_ip, args.mac_tailnet_ip, args.receipt)):
+        p.error('--gateway-key, --vps-tailnet-ip, --mac-tailnet-ip and --receipt are required for SSH setup')
+    vps=tailnet(args.vps_tailnet_ip);mac=tailnet(args.mac_tailnet_ip)
+    key=public_key(args.gateway_key)
     config=ssh_settings(args.user)
     main_config=Path('/etc/ssh/sshd_config').read_text()
     if not re.search(r'^\s*Include\s+/etc/ssh/sshd_config\.d/\*',main_config,re.M|re.I):
@@ -64,24 +132,36 @@ def main():
     dest=keydir/args.user
     # Match blocks must follow macOS's global UsePAM/Subsystem directives.
     dropin=Path(f'/etc/ssh/sshd_config.d/999-warpgate-{args.user}.conf')
-    if keydir.is_symlink() or dest.exists() or dest.is_symlink() or dropin.exists() or dropin.is_symlink():
-        raise ValueError('Existing managed files/symlinks found; refusing overwrite. Review migration manually')
-    receipt=Path(args.receipt).resolve()
-    if receipt.exists(): raise ValueError('Receipt already exists; choose a new private path')
-    keydir.mkdir(mode=0o755,exist_ok=True)
-    if keydir.stat().st_uid!=0 or keydir.stat().st_mode & 0o022:
-        raise ValueError('System authorized-key directory must be root-owned and not writable by other users')
+    keyline=f'from="{vps}",restrict,pty {key} warpgate-gateway\n'
+    key_exists=existing_matches(dest,keyline,0o644)
+    dropin_exists=existing_matches(dropin,config,0o600)
+    if keydir.is_symlink() or dropin.parent.is_symlink():
+        raise ValueError('Refusing managed directory symlink')
+    receipt=Path(args.receipt).absolute()
+    if receipt.is_symlink() or not receipt.parent.is_dir():
+        raise ValueError('Receipt needs an existing private parent directory and must not be a symlink')
+    host=Path('/etc/ssh/ssh_host_ed25519_key.pub')
+    if not host.exists():
+        raise ValueError('Mac host key missing. Initialize Remote Login locally, then rerun')
+    data={'schema_version':1,'username':args.user,'vps_tailnet_ip':vps,
+          'mac_tailnet_ip':mac,'host_public_key':public_key(host)}
+    if receipt.exists():
+        previous=json.loads(receipt.read_text())
+        if not isinstance(previous,dict) or any(previous.get(k)!=v for k,v in data.items()):
+            raise ValueError('Existing receipt belongs to a different binding; choose a new private path')
+    prepare_key_directory(keydir)
     dropin.parent.mkdir(mode=0o755,exist_ok=True)
     ok=False;created_key=False;created_dropin=False
     try:
-        with dest.open('x') as f:
-            created_key=True
-            os.fchmod(f.fileno(),0o644)
-            f.write(f'from="{vps}",restrict,pty {key} warpgate-gateway\n')
-        os.chown(dest,0,0)
-        with dropin.open('x') as f:
-            created_dropin=True
-            os.fchmod(f.fileno(),0o600);f.write(config)
+        if not key_exists:
+            with dest.open('x') as f:
+                created_key=True
+                os.fchmod(f.fileno(),0o644);f.write(keyline)
+            os.chown(dest,0,0)
+        if not dropin_exists:
+            with dropin.open('x') as f:
+                created_dropin=True
+                os.fchmod(f.fileno(),0o600);f.write(config)
         subprocess.run(['/usr/sbin/sshd','-t'],check=True)
         effective=subprocess.check_output(['/usr/sbin/sshd','-T','-C',f'user={args.user},host=localhost,addr={vps}'],text=True)
         settings=dict(line.split(' ',1) for line in effective.splitlines() if ' ' in line)
@@ -91,13 +171,13 @@ def main():
                   'authorizedkeysfile':str(dest)}
         for name,value in expected.items():
             if settings.get(name)!=value: raise ValueError(f'Existing SSH config overrides {name}; installation rolled back')
-        host=Path('/etc/ssh/ssh_host_ed25519_key.pub')
-        if not host.exists():
-            raise ValueError('Mac host key missing. Initialize Remote Login locally, then rerun; no host keys were generated by this tool')
-        data={'schema_version':1,'username':args.user,'vps_tailnet_ip':vps,
-              'mac_tailnet_ip':mac,'host_public_key':public_key(host)}
-        with receipt.open('x') as f:
-            os.fchmod(f.fileno(),0o600);json.dump(data,f,indent=2);f.write('\n')
+        if not args.without_tmux:
+            sessions=session_setup(account)
+            data['terminal_session']={k:sessions[k] for k in ('enabled','version','socket','session')}
+            print('MAC_SESSIONS_CONFIGURED '+json.dumps(sessions))
+        elif receipt.exists() and 'terminal_session' in previous:
+            data['terminal_session']=previous['terminal_session']
+        write_receipt(receipt,data)
         ok=True
     finally:
         if not ok:
@@ -108,4 +188,6 @@ def main():
 
 if __name__=='__main__':
     try: main()
-    except (ValueError,KeyError) as exc: raise SystemExit(str(exc))
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(exc.stderr or str(exc))
+    except (ValueError,KeyError,OSError,subprocess.TimeoutExpired) as exc: raise SystemExit(str(exc))

@@ -24,3 +24,12 @@
 - [quick-xml CPU 公告](https://rustsec.org/advisories/RUSTSEC-2026-0194.html)
 - [quick-xml 内存公告](https://rustsec.org/advisories/RUSTSEC-2026-0195.html)
 - [rsa 公告](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
+# 提交前隐私检查
+
+提交前先暂存需要发布的源码与文档，再执行 `python3 scripts/check_tracked.py --history`。检查对象是 Git 暂存区的实际 blob、所有可达历史和提交元数据；未暂存的修改不会替代暂存区内容。
+
+检查拒绝运行回执、截图、日志、私钥/凭据字面值、完整 SSH 公钥、个人家目录路径及非示例 IP/邮箱。文档使用 example.com、RFC 文档网段和明确的合成 tailnet 测试段。初始历史中有一个合成邮箱注入测试样本，按文件限定兼容；新样本使用 example.com。
+
+如需检查本次部署特有的域名、账号、主机名或指纹，将逐行列表放在仓库外私有文件中，并通过 `WG_PRIVACY_DENYLIST=/private/path/identifiers.txt` 传入。不要把真实值写进检测规则、测试数据或文档。检测只报告文件和规则，不输出匹配内容。Git 作者邮箱使用 GitHub noreply，避免默认 Git 配置泄露私人邮箱。
+
+静态模式检查不能保证发现所有形式的敏感信息，推送前仍需人工查看暂存差异。安装回执、账号授权、备份与测试截图应留在各自私有位置。

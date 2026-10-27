@@ -11,12 +11,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Install isolated terminal test dependencies
+        run: sudo apt-get update && sudo apt-get install -y tmux zsh
       - name: Unit and syntax checks
         run: |
           python3 -m unittest discover -s tests -v
           python3 -m py_compile scripts/*.py
           bash -n scripts/*.sh
-          python3 scripts/check_tracked.py
+          python3 scripts/check_tracked.py --history
       - name: Download locked official Linux binaries
         run: python3 tests/ci_binaries.py
       - name: Real loopback bootstrap and Caddy validation
@@ -30,3 +34,19 @@ jobs:
           sudo ln -s "$PWD/.ci-bin/warpgate" /opt/warpgate-gateway/bin/warpgate
           sudo ln -s "$PWD/.ci-bin/caddy" /opt/warpgate-gateway/bin/caddy
           systemd-analyze verify config/warpgate-gateway.service config/warpgate-https.service
+  mac-terminal:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Fetch verified official tmux fixture
+        run: python3 tests/ci_tmux.py
+      - name: Test disposable homes and actual PTY disconnect and resume
+        env:
+          TMUX_TEST_BINARY: ${{ github.workspace }}/.ci-bin/tmux
+          TMUX_TEST_ASSETS: ${{ github.workspace }}/.ci-bin/tmux-assets
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 scripts/check_tracked.py --history

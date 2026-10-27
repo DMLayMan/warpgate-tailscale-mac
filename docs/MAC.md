@@ -11,11 +11,23 @@
 
 远程登录的系统设置可能需要管理员确认和系统隐私权限，应由 Mac 现场管理员完成。脚本不会关闭 FileVault、修改全局防火墙或改掉其他账号的 SSH 配置。
 
-## 2. 授权网关公钥
+## 2. 一条命令配置 SSH 与持久终端
 
 从 VPS 取得 `/opt/warpgate-gateway/public/gateway-ed25519.pub`，通过可信渠道带到远端 Mac。只传公钥，不导出 Warpgate 数据库或私钥。
 
-在远端 Mac 的管理员终端执行，将以下示例的两个 100.x 地址换为实际值：
+提前准备以下输入，实际值只留在服务器或仓库外的私有目录：
+
+| 输入 | 获取方式 |
+| --- | --- |
+| `--user` | 已创建、允许远程登录的标准账号短名称；不是网页账号 |
+| `--gateway-key` | 从 VPS 带来的网关 Ed25519 公钥文件路径 |
+| `--vps-tailnet-ip` | VPS 的 Tailscale IPv4 |
+| `--mac-tailnet-ip` | 当前待新增 Mac 的 Tailscale IPv4 |
+| `--receipt` | 已存在的私有目录内、用于保存回执的完整文件路径 |
+
+Mac 需有可用的 Python 3.9+，并允许 Python 通过正常 HTTPS 访问 GitHub Release。默认持久终端要求 macOS 15+、目标账号 shell 为 `/bin/zsh`，不要求 Homebrew。系统账号创建、Tailscale 登录和 macOS 远程登录授权仍是前置准备，不会被脚本绕过。
+
+在远端 Mac 的管理员终端执行，将以下账号、路径和两个示例地址换为实际输入：
 
 ```sh
 sudo python3 scripts/setup_mac.py --on-server \
@@ -26,10 +38,23 @@ sudo python3 scripts/setup_mac.py --on-server \
   --receipt /private/path/mac-receipt.json
 ```
 
-安装器会拒绝管理员/系统账号、非法密钥、非 tailnet IPv4、已有托管文件或覆盖操作。第一次安装写入：
+命令会验证账号和 SSH 配置，下载并验证固定版本的 tmux，再在指定标准账号下配置自动恢复。看到 `MAC_SESSIONS_CONFIGURED` 和 `MAC_SSH_CONFIGURED` 表示两部分初始化完成；真实链路仍需按下文验收。
+
+安装器拒绝管理员/系统账号、非法密钥、非 tailnet IPv4、符号链接以及有冲突的托管文件。相同 SSH 绑定可以重复运行；不会覆盖不同的公钥、来源 IP 或账号绑定。相同回执保持不变，增加持久终端字段时先保存旧回执副本。第一次安装写入：
 
 - `/etc/ssh/warpgate_authorized_keys/用户名`，root 所有、权限 644，仅包含公钥。普通账号不能自行替换来源限制或添加其他身份。
 - `/etc/ssh/sshd_config.d/999-warpgate-用户名.conf`，排序在 macOS 的全局 UsePAM/Subsystem 配置后，仅针对这个用户。
+- 指定账号的 `~/.local/bin/remote-resume`、独立 tmux 配置、经校验的用户级 tmux 二进制，以及 `.zshrc` 的带标记自动恢复块；原文件先备份。详见 [SESSIONS.md](SESSIONS.md)。
+
+公钥目录显式设为 755，避免调用方的 `umask 077` 使标准账号无法读取公钥。目录仍由 root 管理，普通账号无写权限。
+
+只需要 SSH 或已自行配置终端时，可在原命令后加 `--without-tmux`；这不会卸载或停掉原有会话。已经配置好 SSH 的后端可以单独补上持久终端：
+
+```sh
+sudo python3 scripts/setup_mac.py --on-server --user remoteoperator --sessions-only
+```
+
+旧版手工安装存在同名 `remote-resume`、不同的自动恢复块或 `ZDOTDIR` 时，先按迁移说明处理；不要删除仍承载任务的 tmux 服务来强行重装。
 
 公钥限制包含 `from="VPS_TAILNET_IP",restrict,pty`。这个账号只使用独立的系统托管公钥文件；原 ~/.ssh/authorized_keys 文件保留，但不再用于此专用账号的 SSH 认证。因此应使用新建专用账号，不要把已有日常账号直接改作网关账号。
 
@@ -54,7 +79,7 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
 - 打开适合该机型的“显示器关闭时防止自动睡眠”选项；保持电源与网络。不要假设所有 Mac 机型或合盖状态都能可靠唤醒。
 - 保留 FileVault。断电/重启后的预启动解锁可能需要现场操作，未解锁时不能依靠普通 SSH 连接。
 - Tailscale 启动、Remote Login、FileVault 解锁和网络恢复是不同条件。必须做一次真实重启/休眠恢复验收。
-- 浏览器断开后网关约 60 秒清理未附着的网页会话，需要持续工作时可在 Mac 使用 tmux。管理员撤权关闭连接不会自动终止脱离会话的后台任务。
+- 默认安装的 tmux 会在新交互式 SSH 连接中自动恢复 `work` 会话，浏览器关闭后仍保留任务。配置前打开的终端需重新连接；原有进程不会自动迁入 tmux。管理员撤权关闭连接不会自动终止脱离会话的后台任务。
 
 ## 5. 回退与轮换
 
