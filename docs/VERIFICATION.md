@@ -21,7 +21,7 @@ python3 -m unittest discover -s tests -v
 python3 scripts/check_tracked.py --history
 ```
 
-仓库新增 macOS 原生终端测试任务，Linux 任务补充 tmux/zsh 用于临时终端测试。云端是否实际执行，应查看对应提交的 Actions 状态；此前存在的账单限制见下文。
+仓库新增 macOS 原生终端测试任务，Linux 任务补充 tmux/zsh 用于临时终端测试。云端是否实际执行，应查看对应提交的 Actions 状态。当前新增任务尚未完成云端执行，不能列为通过；账户相关诊断保留在仓库外。
 
 当前在线后端的手工版本此前完成过网页关闭、Disconnect、恢复同一进程及五分钟持续运行验收，私有证据保存在仓库外。该结果不能替代本次通用安装器在另一台全新 Mac 上的完整管理员/账号/Tailscale/网页链路验收；本轮未改动在线后端。
 
@@ -38,7 +38,7 @@ python3 scripts/check_tracked.py --history
 
 部署包共 12 个测试用例，包括 1 个实际初始化集成用例和本机原生 macOS sshd 的配置解析检查（不启动服务、不修改系统）。最初的内部证书生成兼容问题已修正：显式使用命名椭圆曲线，私有 CA 与 TLS 叶证书分开，保持证书校验。
 
-仓库包含 GitHub Actions：使用锁定的官方 Linux 二进制重复真实初始化及 Caddy 验证，并检查 systemd 单元。首次运行未启动任何步骤，GitHub 返回账户近期付款失败或支出上限需调整。因此 Linux CI 尚未执行，不能列为通过；未修改账单或仓库私有设置。账户恢复后可手动运行 workflow_dispatch。
+仓库包含 GitHub Actions：使用锁定的官方 Linux 二进制重复真实初始化及 Caddy 验证，并检查 systemd 单元。首次运行未启动任何步骤，因此 Linux CI 尚未执行，不能列为通过。运行条件满足后可手动运行 workflow_dispatch；账户相关诊断不属于通用部署文档。
 
 此前对 Warpgate 0.30.2 的独立研究另完成 140 项单元检查、31 项集成检查，包括多用户隔离、撤权、未知/变化的主机公钥、TOTP、ticket 隔离和原生 macOS OpenSSH 互通。这些不等于本部署包已经在真实服务器安装。
 
