@@ -1,0 +1,32 @@
+{
+  "mfa_enforcement": "Require",
+  "mfa_policy_exempt_sso_users": false,
+  "default_credential_policy": {"http": ["Password"]},
+  "password_policy": {
+    "min_length": 16,
+    "require_uppercase": true,
+    "require_lowercase": true,
+    "require_digits": true,
+    "require_special": true
+  },
+  "login_protection_enabled": true,
+  "lp_ip_max_attempts": 30,
+  "lp_ip_time_window_seconds": 600,
+  "lp_ip_base_block_duration_seconds": 300,
+  "lp_ip_max_block_duration_seconds": 3600,
+  "lp_user_max_attempts": 8,
+  "lp_user_time_window_seconds": 600,
+  "lp_user_auto_unlock": true,
+  "lp_user_lockout_duration_seconds": 900,
+  "lp_user_exempt_admins": false,
+  "ssh_host_key_verification": "AutoReject",
+  "ssh_client_auth_password": false,
+  "ticket_self_service_enabled": false,
+  "ticket_auto_approve_existing_access": false,
+  "ticket_request_show_all_targets": false,
+  "web_clients_enabled": true,
+  "web_auth_max_age_seconds": 3600,
+  "max_api_token_duration_seconds": 3600,
+  "recordings_enable": true,
+  "analytics_normal": false
+}

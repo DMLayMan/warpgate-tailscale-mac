@@ -1,0 +1,6 @@
+{
+  "domain": "ssh.example.com",
+  "public_ip": "203.0.113.10",
+  "acme_email": "",
+  "backend_port": 8888
+}

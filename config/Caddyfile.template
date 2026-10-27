@@ -1,0 +1,28 @@
+{
+    admin off
+    servers {
+        protocols h1 h2
+    }
+}
+
+@@DOMAIN@@ {
+    @@EMAIL@@
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+    reverse_proxy https://127.0.0.1:@@PORT@@ {
+        header_up Host {host}
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-For {remote_host}
+        header_up -Forwarded
+        header_up -X-Real-IP
+        transport http {
+            tls_server_name localhost
+            tls_trust_pool file @@ROOT@@/public/backend.crt
+        }
+    }
+}

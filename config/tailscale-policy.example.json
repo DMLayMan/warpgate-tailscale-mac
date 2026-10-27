@@ -1,0 +1,13 @@
+{
+  "tagOwners": {
+    "tag:warpgate-vps": ["autogroup:admin"],
+    "tag:warpgate-mac": ["autogroup:admin"]
+  },
+  "grants": [
+    {"src": ["tag:warpgate-vps"], "dst": ["tag:warpgate-mac"], "ip": ["tcp:22"]}
+  ],
+  "tests": [
+    {"src": "tag:warpgate-vps", "accept": ["tag:warpgate-mac:22"], "deny": ["tag:warpgate-mac:5900"]},
+    {"src": "tag:warpgate-mac", "deny": ["tag:warpgate-vps:8888"]}
+  ]
+}

@@ -1,0 +1,32 @@
+name: Verify deployment configuration
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Unit and syntax checks
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m py_compile scripts/*.py
+          bash -n scripts/*.sh
+          python3 scripts/check_tracked.py
+      - name: Download locked official Linux binaries
+        run: python3 tests/ci_binaries.py
+      - name: Real loopback bootstrap and Caddy validation
+        env:
+          WG_TEST_BINARY: ${{ github.workspace }}/.ci-bin/warpgate
+          CADDY_TEST_BINARY: ${{ github.workspace }}/.ci-bin/caddy
+        run: python3 -m unittest discover -s tests -v
+      - name: Validate systemd units on a disposable runner
+        run: |
+          sudo install -d /opt/warpgate-gateway/bin
+          sudo ln -s "$PWD/.ci-bin/warpgate" /opt/warpgate-gateway/bin/warpgate
+          sudo ln -s "$PWD/.ci-bin/caddy" /opt/warpgate-gateway/bin/caddy
+          systemd-analyze verify config/warpgate-gateway.service config/warpgate-https.service

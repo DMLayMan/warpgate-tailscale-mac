@@ -1,0 +1,13 @@
+local/
+.ci-bin/
+runtime/
+__pycache__/
+*.pyc
+.DS_Store
+*.pem
+*.key
+*.env
+*.sqlite3*
+*.tar*
+*.age
+*receipt.json

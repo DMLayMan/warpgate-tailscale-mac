@@ -1,0 +1,35 @@
+[Unit]
+Description=Warpgate web SSH gateway
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=wg-gateway
+Group=wg-gateway
+WorkingDirectory=/opt/warpgate-gateway
+EnvironmentFile=/opt/warpgate-gateway/secrets/encryption.env
+ExecStart=/opt/warpgate-gateway/bin/warpgate --config /opt/warpgate-gateway/config/warpgate.yaml run
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/warpgate-gateway/data /opt/warpgate-gateway/config
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+TasksMax=256
+MemoryMax=512M
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

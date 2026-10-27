@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-10-27",
+  "warpgate": {
+    "version": "0.30.2",
+    "amd64": {
+      "url": "https://github.com/warp-tech/warpgate/releases/download/v0.30.2/warpgate-v0.30.2-x86_64-linux",
+      "sha256": "93da74e42a3f7c73524b805be8c2271febf096570e804b7dc87a472bfdc7fc52"
+    },
+    "arm64": {
+      "url": "https://github.com/warp-tech/warpgate/releases/download/v0.30.2/warpgate-v0.30.2-arm64-linux",
+      "sha256": "1e9754951017241cef9d0a55479a2313d5a1607069c09eb1bd287aa750e22e45"
+    }
+  },
+  "caddy": {
+    "version": "2.11.7",
+    "amd64": {
+      "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz",
+      "sha256": "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b"
+    },
+    "arm64": {
+      "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_arm64.tar.gz",
+      "sha256": "d8fc6d179a5d283028a472a5618564f6ad8a86fed513e64f032b3b0b7cc45e42"
+    }
+  },
+  "tailscale": {
+    "version": "1.104.2",
+    "amd64": {
+      "url": "https://pkgs.tailscale.com/stable/tailscale_1.104.2_amd64.tgz",
+      "sha256": "512f613ed7d04fc7282f7dc5bd76aa105aae28168fbb9357eb749ebcbc29f0ae"
+    },
+    "arm64": {
+      "url": "https://pkgs.tailscale.com/stable/tailscale_1.104.2_arm64.tgz",
+      "sha256": "5776aaa901b5ef1916e66be5bb54b9f481cd399c9c28db123a8cab620efa237b"
+    }
+  }
+}
