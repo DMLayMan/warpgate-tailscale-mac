@@ -62,7 +62,8 @@ def main():
         raise ValueError('sshd_config does not include /etc/ssh/sshd_config.d/*; add/review Include manually first')
     keydir=Path('/etc/ssh/warpgate_authorized_keys')
     dest=keydir/args.user
-    dropin=Path(f'/etc/ssh/sshd_config.d/080-warpgate-{args.user}.conf')
+    # Match blocks must follow macOS's global UsePAM/Subsystem directives.
+    dropin=Path(f'/etc/ssh/sshd_config.d/999-warpgate-{args.user}.conf')
     if keydir.is_symlink() or dest.exists() or dest.is_symlink() or dropin.exists() or dropin.is_symlink():
         raise ValueError('Existing managed files/symlinks found; refusing overwrite. Review migration manually')
     receipt=Path(args.receipt).resolve()

@@ -29,7 +29,7 @@ sudo python3 scripts/setup_mac.py --on-server \
 安装器会拒绝管理员/系统账号、非法密钥、非 tailnet IPv4、已有托管文件或覆盖操作。第一次安装写入：
 
 - `/etc/ssh/warpgate_authorized_keys/用户名`，root 所有、权限 644，仅包含公钥。普通账号不能自行替换来源限制或添加其他身份。
-- `/etc/ssh/sshd_config.d/080-warpgate-用户名.conf`，仅针对这个用户。
+- `/etc/ssh/sshd_config.d/999-warpgate-用户名.conf`，排序在 macOS 的全局 UsePAM/Subsystem 配置后，仅针对这个用户。
 
 公钥限制包含 `from="VPS_TAILNET_IP",restrict,pty`。这个账号只使用独立的系统托管公钥文件；原 ~/.ssh/authorized_keys 文件保留，但不再用于此专用账号的 SSH 认证。因此应使用新建专用账号，不要把已有日常账号直接改作网关账号。
 

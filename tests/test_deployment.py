@@ -2,6 +2,7 @@ import base64
 import importlib.util
 import json
 import os
+import platform
 from pathlib import Path
 import socket
 import ssl
@@ -104,6 +105,26 @@ class Configuration(unittest.TestCase):
             self.assertIn('ProtectSystem=strict',data)
             self.assertNotIn('--enable-admin-token',data)
             self.assertNotIn('User=root',data)
+
+    @unittest.skipUnless(platform.system()=='Darwin','Native macOS sshd configuration parser check')
+    def test_native_macos_sshd_accepts_scoped_hardening(self):
+        # Parse a disposable config; do not start sshd or edit system files.
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(d/'host')],check=True)
+            include=d/'conf.d';include.mkdir()
+            (include/'100-macos.conf').write_text('UsePAM yes\nAcceptEnv LANG LC_*\nSubsystem sftp /usr/libexec/sftp-server\n')
+            (include/'999-warpgate-remoteoperator.conf').write_text(mac.ssh_settings('remoteoperator'))
+            cfg=d/'sshd_config'
+            cfg.write_text(f'Port 18899\nListenAddress 127.0.0.1\nHostKey {d}/host\nInclude {include}/*\nAuthorizedKeysFile .ssh/authorized_keys\n')
+            subprocess.run(['/usr/sbin/sshd','-t','-f',str(cfg)],check=True)
+            result=subprocess.check_output(['/usr/sbin/sshd','-T','-f',str(cfg),'-C','user=remoteoperator,host=localhost,addr=100.64.1.10'],text=True)
+            self.assertIn('disableforwarding yes',result)
+            self.assertIn('passwordauthentication no',result)
+            self.assertIn('authorizedkeysfile /etc/ssh/warpgate_authorized_keys/remoteoperator',result)
+            unrelated=subprocess.check_output(['/usr/sbin/sshd','-T','-f',str(cfg),'-C','user=unrelated,host=localhost,addr=100.64.1.10'],text=True)
+            self.assertIn('authorizedkeysfile .ssh/authorized_keys\n',unrelated)
+            self.assertIn('disableforwarding no',unrelated)
 
 @unittest.skipUnless(os.getenv('WG_TEST_BINARY'),'Set WG_TEST_BINARY to run real loopback initialization')
 class RealBootstrap(unittest.TestCase):
