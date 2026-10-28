@@ -51,7 +51,7 @@ try {
         Set-ManagedAcl $f $sid
         Assert-AdminOwned $f
         Assert-True ((Get-Content -LiteralPath $f -Raw) -eq 'synthetic fixture') 'Public key ACL made file unreadable'
-        $sshd=Join-Path $env:WINDIR 'System32\OpenSSH\sshd.exe'
+        $sshd=if ($env:WG_SSHD_TEST_BINARY) { $env:WG_SSHD_TEST_BINARY } else { Join-Path $env:WINDIR 'System32\OpenSSH\sshd.exe' }
         if (Test-Path $sshd) {
             $hostPath=Join-Path $dir 'host'
             # Windows PowerShell 5.1 drops an empty native argv element; quoted-empty preserves -N.

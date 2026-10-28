@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 import platform
 import pty
+import select
+import fcntl
+import struct
+import termios
 import shutil
 import subprocess
 import sys
@@ -319,14 +323,22 @@ class RealTerminal(unittest.TestCase):
             def wait_for(predicate):
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
+                    # A real terminal consumes paint output. An unread Linux PTY
+                    # can fill and block tmux before it processes keyboard input.
+                    for _, fd in clients:
+                        if fd is not None and select.select([fd], [], [], 0)[0]:
+                            try: os.read(fd, 65536)
+                            except OSError: pass
                     try:
                         if predicate(): return
                     except (subprocess.CalledProcessError, FileNotFoundError, ValueError): pass
                     time.sleep(.05)
-                self.fail('Timed out waiting for isolated terminal state')
+                pane = tmux('capture-pane', '-p')
+                self.fail('Timed out waiting for isolated terminal state: ' + pane[-1500:])
             clients = []
             def connect():
                 master, slave = pty.openpty()
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
                 proc = subprocess.Popen(['/bin/zsh', '-d', '-i'], stdin=slave, stdout=slave,
                                         stderr=slave, env=env, start_new_session=True)
                 os.close(slave); clients.append((proc, master))

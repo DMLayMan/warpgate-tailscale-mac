@@ -11,6 +11,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Fetch official Windows parser fixture without installing a service
+        shell: pwsh
+        run: .\tests\ci_windows.ps1
       - name: Windows PowerShell 5.1 isolated checks
         shell: powershell
         run: .\tests\test_windows.ps1
