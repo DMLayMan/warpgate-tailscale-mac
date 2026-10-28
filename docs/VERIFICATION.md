@@ -1,5 +1,19 @@
 # 验证范围
 
+## 当前云端结果（2026-10-28）
+
+提交 `397b10d` 的 [Actions 40709211660](https://github.com/DMLayMan/warpgate-tailscale-mac/actions/runs/40709211660) 三组任务全部通过：
+
+- Windows Server 2022：Windows PowerShell 5.1 和 PowerShell 7 的输入/配置测试、真实临时文件 NTFS ACL，以及 Windows 原生 sshd 配置解析。
+- Ubuntu 24.04：Python 测试、真实 PTY 断线/恢复、隐私历史扫描、锁定的官方 Warpgate/Caddy 二进制回环初始化、TLS/加密检查、systemd 单元校验。
+- macOS 15：下载并校验官方 tmux，临时目录首次安装/重复执行，以及真实 PTY 断线/恢复。
+
+Windows sshd 解析使用官方 Win32-OpenSSH 10.4.0.0p1-Preview 的校验 SHA256 便携测试文件，未安装其服务。生产安装器使用 Windows 自带的 OpenSSH 可选功能，并在目标机上再次运行 `sshd -t/-T`；云端夹具不代表所有 Windows 内置版本已实机部署。测试不创建真实系统账号或修改现有后端。
+
+Linux PTY 测试曾被 runner 的全局 zsh 补全提示打断，现通过临时家目录的 `.zshenv` 隔离全局启动配置，同时保留待测 `.zshrc` 和真实 tmux 进程。没有改动用户机器的 shell 配置或放宽安装检查。
+
+这些结果补齐下述早期记录中的云端空缺，仍不替代新 Windows 的管理员安装、网关公钥认证、浏览器操作及重启/休眠验收。
+
 ## 持久终端整合（2026-10-27）
 
 当前测试集共 37 项。本轮 macOS arm64 本地执行：36 项通过，原有 Warpgate 完整初始化集成用例因未提供 `WG_TEST_BINARY` 跳过，没有将其列为本轮通过。
@@ -21,7 +35,7 @@ python3 -m unittest discover -s tests -v
 python3 scripts/check_tracked.py --history
 ```
 
-仓库新增 macOS 原生终端测试任务，Linux 任务补充 tmux/zsh 用于临时终端测试。云端是否实际执行，应查看对应提交的 Actions 状态。当前新增任务尚未完成云端执行，不能列为通过；账户相关诊断保留在仓库外。
+仓库新增 macOS 原生终端测试任务，Linux 任务补充 tmux/zsh 用于临时终端测试。2026-10-27 当轮未完成云端执行；2026-10-28 的后续结果见本文顶部。
 
 当前在线后端的手工版本此前完成过网页关闭、Disconnect、恢复同一进程及五分钟持续运行验收，私有证据保存在仓库外。该结果不能替代本次通用安装器在另一台全新 Mac 上的完整管理员/账号/Tailscale/网页链路验收；本轮未改动在线后端。
 
@@ -38,7 +52,7 @@ python3 scripts/check_tracked.py --history
 
 部署包共 12 个测试用例，包括 1 个实际初始化集成用例和本机原生 macOS sshd 的配置解析检查（不启动服务、不修改系统）。最初的内部证书生成兼容问题已修正：显式使用命名椭圆曲线，私有 CA 与 TLS 叶证书分开，保持证书校验。
 
-仓库包含 GitHub Actions：使用锁定的官方 Linux 二进制重复真实初始化及 Caddy 验证，并检查 systemd 单元。首次运行未启动任何步骤，因此 Linux CI 尚未执行，不能列为通过。运行条件满足后可手动运行 workflow_dispatch；账户相关诊断不属于通用部署文档。
+仓库包含 GitHub Actions：使用锁定的官方 Linux 二进制重复真实初始化及 Caddy 验证，并检查 systemd 单元。首次运行未启动步骤；2026-10-28 已补齐这些检查，见本文顶部。
 
 此前对 Warpgate 0.30.2 的独立研究另完成 140 项单元检查、31 项集成检查，包括多用户隔离、撤权、未知/变化的主机公钥、TOTP、ticket 隔离和原生 macOS OpenSSH 互通。这些不等于本部署包已经在真实服务器安装。
 
@@ -46,6 +60,6 @@ python3 scripts/check_tracked.py --history
 
 ## Windows 原生后端检查
 
-新增 `setup_windows.ps1` 和 `windows-config` CI 任务。PowerShell 5.1/7 的隔离测试覆盖输入校验、错误平台拒绝、配置追加/重复执行、冲突拒绝和强制终端设置；Windows runner 另检查临时文件的 NTFS ACL，在内置 sshd 可用时检查原生配置解析。测试不创建真实系统账号、不安装系统功能、不启动服务。
+新增 `setup_windows.ps1` 和 `windows-config` CI 任务。PowerShell 5.1/7 的隔离测试覆盖输入校验、配置追加/重复执行、冲突拒绝和强制终端设置；Windows runner 另检查临时文件的 NTFS ACL，并下载固定版本的官方便携 sshd 检查原生配置解析。非 Windows 本地测试另验证错误平台拒绝。测试不创建真实系统账号、不安装系统功能、不启动服务。
 
 Mac 上运行 PowerShell 7 的 31 项断言通过；Python 共 39 项测试，37 项通过，2 项因未提供真实 Warpgate 二进制和 tmux 下载夹具跳过。Windows 回执可生成独立目标，旧 Mac 回执兼容。实际 Windows 管理员安装、网关认证和重启验收仍需目标机器参与；不把跨平台单元测试称为 Windows 全链路验收。
