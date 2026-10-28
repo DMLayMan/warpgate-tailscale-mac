@@ -314,6 +314,9 @@ class RealTerminal(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='wgt-', dir='/tmp') as directory:
             home = Path(directory)
             sessions.configure(home, Path(TMUX))
+            # Keep both the login shell and tmux's child shell independent of
+            # runner-wide completion prompts, while still loading our .zshrc.
+            (home/'.zshenv').write_text('unsetopt GLOBAL_RCS\n')
             env = {'HOME': str(home), 'PATH': '/usr/bin:/bin', 'TERM': 'xterm-256color',
                    'SHELL': '/bin/zsh', 'LANG': 'en_US.UTF-8', 'TMUX_TMPDIR': str(home),
                    'SSH_CONNECTION': '100.64.1.10 50000 100.64.1.20 22'}
