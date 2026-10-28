@@ -6,6 +6,17 @@ on:
 permissions:
   contents: read
 jobs:
+  windows-config:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Windows PowerShell 5.1 isolated checks
+        shell: powershell
+        run: .\tests\test_windows.ps1
+      - name: PowerShell 7 isolated checks
+        shell: pwsh
+        run: .\tests\test_windows.ps1
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -79,6 +79,8 @@ sudo journalctl -u warpgate-https -n 50 --no-pager
 
 ## 5. 登记 Mac 目标
 
+Windows 后端先执行 [Windows SOP](WINDOWS.md)，使用 `server-receipt.json`；下面生成命令可加 `--name remote-windows`。Mac 旧回执继续兼容，新增后端不要覆盖现有 Target。
+
 把 `public/gateway-ed25519.pub` 交给真正远端 Mac 的管理员；私钥始终在网关数据库。按 MAC.md 完成配置，通过可信渠道取得 Mac 回执。
 
 ```sh
@@ -90,8 +92,8 @@ python3 scripts/wgkit.py prepare-target \
 
 此命令生成要录入的精确字段，不会调用线上管理员 API：
 
-1. Admin → Config → SSH keys / Known hosts，录入 `known-host.json` 的 Mac Tailscale IP、22、key_type 和 key_base64。通过 Mac 本机控制台核对指纹，不能靠 `ssh-keyscan` 的网络结果建立初始信任。
-2. Config → Targets → 添加 SSH：按 target.json 填 host、port、username、PublicKey；明确选择 gateway-key-id 对应的 Ed25519 公钥；Allow insecure algorithms 关闭；ticket 请求关闭。
+1. Config → Targets → 新建 SSH，先不分配日常访问角色。按 target.json 填 host、port、username、PublicKey；明确选择 gateway-key-id 对应的 Ed25519 公钥；Allow insecure algorithms 关闭；ticket 请求关闭。
+2. 若 Known hosts 页面支持新增，可录入 known-host.json；0.30.2 的另一种 UI 流程是在目标保存后执行 Check host key，将结果与服务器本机指纹和可信回执核对后再 Trust。不能仅凭网络扫描结果建立初始信任。全局关闭自助 ticket 时目标级设置可能隐藏；保持全局关闭，未来开启前先检查各目标的票据策略。
 3. 创建例如 mac-operators 的普通访问角色，将 Target 分配给该角色；创建每个人自己的账号并授予角色。普通用户不授予任何管理员角色。
 4. 用户首次登录登记 TOTP，再进入 Mac 网页终端。未知公钥默认 AutoReject，未登记正确主机公钥会连接失败，这是预期保护。
 

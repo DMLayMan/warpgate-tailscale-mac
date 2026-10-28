@@ -43,3 +43,9 @@ python3 scripts/check_tracked.py --history
 此前对 Warpgate 0.30.2 的独立研究另完成 140 项单元检查、31 项集成检查，包括多用户隔离、撤权、未知/变化的主机公钥、TOTP、ticket 隔离和原生 macOS OpenSSH 互通。这些不等于本部署包已经在真实服务器安装。
 
 尚未声称完成：VPS 的 systemd 实际运行、阿里云防火墙、管理员 TOTP 的人工登记、tailnet 策略保存、远端 Mac 系统设置与安装、真实跨网链路、生产容量、重启/休眠、完整恢复演练。需要按 OPERATIONS.md 的清单现场验收。
+
+## Windows 原生后端检查
+
+新增 `setup_windows.ps1` 和 `windows-config` CI 任务。PowerShell 5.1/7 的隔离测试覆盖输入校验、错误平台拒绝、配置追加/重复执行、冲突拒绝和强制终端设置；Windows runner 另检查临时文件的 NTFS ACL，在内置 sshd 可用时检查原生配置解析。测试不创建真实系统账号、不安装系统功能、不启动服务。
+
+Mac 上运行 PowerShell 7 的 31 项断言通过；Python 共 39 项测试，37 项通过，2 项因未提供真实 Warpgate 二进制和 tmux 下载夹具跳过。Windows 回执可生成独立目标，旧 Mac 回执兼容。实际 Windows 管理员安装、网关认证和重启验收仍需目标机器参与；不把跨平台单元测试称为 Windows 全链路验收。

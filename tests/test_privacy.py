@@ -13,6 +13,7 @@ class PrivacyChecks(unittest.TestCase):
 
     def test_real_looking_identifiers_rejected_without_echo(self):
         cases = [b'8.' + b'8.8.8', b'/Users/' + b'private-user/Documents/',
+                 b'C:\\Users\\' + b'private-user\\Documents\\',
                  b'person@' + b'mail.invalid', b'ssh-ed25519 ' + base64.b64encode(bytes(51))]
         for value in cases:
             with self.subTest(value=value):

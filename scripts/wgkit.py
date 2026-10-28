@@ -245,31 +245,40 @@ def install(args):
 
 def prepare_target(args):
     r=load(args.receipt)
-    for name in ('mac_tailnet_ip','vps_tailnet_ip'):
-        addr=ipaddress.ip_address(r[name])
+    server=r.get('server_tailnet_ip',r.get('mac_tailnet_ip'))
+    if r.get('server_tailnet_ip') and r.get('mac_tailnet_ip') and r['server_tailnet_ip']!=r['mac_tailnet_ip']:
+        raise ValueError('Conflicting server addresses in receipt')
+    for name,value in (('server_tailnet_ip',server),('vps_tailnet_ip',r['vps_tailnet_ip'])):
+        addr=ipaddress.ip_address(value)
         if addr not in ipaddress.ip_network('100.64.0.0/10'): raise ValueError(f'{name} must be a Tailscale IPv4 address')
     if not re.fullmatch('[a-z_][a-z0-9_-]{0,31}',r['username']): raise ValueError('Invalid Mac username')
     parts=r['host_public_key'].split()
     if len(parts)<2 or parts[0]!='ssh-ed25519': raise ValueError('Trusted Mac Ed25519 host key required')
-    base64.b64decode(parts[1],validate=True)
+    blob=base64.b64decode(parts[1],validate=True)
+    if len(blob)!=51 or blob[:19]!=b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20':
+        raise ValueError('Malformed Ed25519 host key')
+    port=r.get('port',22)
+    if type(port) is not int or not 1<=port<=65535: raise ValueError('Invalid SSH port')
+    name=getattr(args,'name',None) or ('remote-windows' if r.get('backend_os')=='windows' else 'remote-mac')
+    if not re.fullmatch('[a-z][a-z0-9-]{0,62}',name): raise ValueError('Invalid target name')
     import uuid
     key_id=str(uuid.UUID(Path(args.key_id).read_text().strip()))
     out=Path(args.output)
     out.mkdir(mode=0o700,parents=True,exist_ok=False)
-    known={'host':r['mac_tailnet_ip'],'port':22,'key_type':parts[0],'key_base64':parts[1]}
-    target={'name':'remote-mac','require_approval':False,'ticket_requests_disabled':True,'ticket_require_approval':True,
-        'options':{'kind':'Ssh','host':r['mac_tailnet_ip'],'port':22,'username':r['username'],
+    known={'host':server,'port':port,'key_type':parts[0],'key_base64':parts[1]}
+    target={'name':name,'require_approval':False,'ticket_requests_disabled':True,'ticket_require_approval':True,
+        'options':{'kind':'Ssh','host':server,'port':port,'username':r['username'],
                    'allow_insecure_algos':False,'auth':{'kind':'PublicKey','key_id':key_id}}}
     write(out/'known-host.json',json.dumps(known,indent=2)+'\n')
     write(out/'target.json',json.dumps(target,indent=2)+'\n')
-    print('Import the known host first, then create the SSH target in Admin UI; see docs/VPS.md.')
+    print('Create a separate target; verify its host key against the trusted receipt before granting access. See docs/VPS.md.')
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest='command',required=True)
     a=sub.add_parser('install');a.add_argument('--on-vps',action='store_true');a.add_argument('--site',required=True)
     a=sub.add_parser('render');a.add_argument('--site',required=True);a.add_argument('--output',required=True)
-    a=sub.add_parser('prepare-target');a.add_argument('--receipt',required=True);a.add_argument('--key-id',required=True);a.add_argument('--output',required=True)
+    a=sub.add_parser('prepare-target');a.add_argument('--receipt',required=True);a.add_argument('--key-id',required=True);a.add_argument('--output',required=True);a.add_argument('--name')
     args=p.parse_args()
     if args.command=='install': install(args)
     elif args.command=='prepare-target': prepare_target(args)

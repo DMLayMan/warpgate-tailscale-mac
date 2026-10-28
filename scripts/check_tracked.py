@@ -28,6 +28,7 @@ def findings(path, data, deny=()):
         'credential token': rb'(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|tskey-[A-Za-z0-9_-]{20,})',
         'literal SSH public key': rb'ssh-(?:ed25519|rsa) [A-Za-z0-9+/]{40,}={0,3}',
         'personal home path': rb'/(?:Users|home)/[A-Za-z0-9_.-]+/',
+        'Windows personal home path': rb'[A-Za-z]:[\\/]+Users[\\/]+(?!Public(?:[\\/]|$))[A-Za-z0-9_.-]+[\\/]',
     }
     for label, pattern in rules.items():
         if re.search(pattern, data): errors.append(label)

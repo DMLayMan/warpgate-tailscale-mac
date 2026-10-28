@@ -1,6 +1,6 @@
-# Warpgate + Tailscale + Mac
+# Warpgate + Tailscale + Mac / Windows
 
-浏览器通过域名 HTTPS 登录 VPS 上的 Warpgate，再由网关经 Tailscale 连接 Mac 的原生 OpenSSH。网页账号集中管理；Mac 只需信任网关专用公钥。新增浏览器或网页用户不用再改 Mac。
+浏览器通过域名 HTTPS 登录 VPS 上的 Warpgate，再由网关经 Tailscale 连接 Mac 或 Windows 的原生 OpenSSH。网页账号集中管理；后端只需信任网关专用公钥。新增浏览器或网页用户不用再改后端。仓库名称保留，Windows 入口见 [Windows 完整 SOP](docs/WINDOWS.md)。
 
 这是独立部署项目。发布基线为 Warpgate **0.30.2**、Caddy **2.11.7**、可选 Tailscale 静态包 **1.104.2**，下载地址与 SHA256 固定在 `config/versions.lock.json`。小规模使用原生二进制、systemd 和 SQLite，无 Node、插件运行时或外部数据库。
 
@@ -8,7 +8,8 @@
 flowchart LR
     Browser[浏览器：账号 + TOTP] -->|HTTPS 443| Caddy[VPS：Caddy]
     Caddy -->|回环 HTTPS + CA 校验| WG[Warpgate：账号 / 角色 / 网关密钥]
-    WG -->|Tailscale 网络中的 SSH 22| Mac[Mac：专用普通账号 / 原生 sshd]
+    WG -->|Tailscale 网络中的 SSH 22| Mac[Mac：专用普通账号 / 原生 sshd / tmux]
+    WG -->|Tailscale 网络中的 SSH 22| Win[Windows：专用普通账号 / 原生 sshd / PowerShell]
 ```
 
 ## 两端分别负责什么
@@ -18,13 +19,14 @@ flowchart LR
 | DNS | 独立子域名 A 记录指向 VPS 公网 IPv4 |
 | VPS | Tailscale 节点；Warpgate 回环监听；Caddy 自动公网证书；账号、TOTP、角色、会话记录；凭据加密与备份 |
 | Mac | Tailscale 节点；专用非管理员账号；原生远程登录；仅接受来自 VPS tailnet IP 的网关公钥；关闭转发；tmux 持久终端 |
+| Windows | Tailscale 节点；专用本地标准账号；原生 OpenSSH；只接受网关公钥及 VPS 来源；PowerShell 交互终端，无断线会话恢复 |
 | 浏览器客户端 | 访问 HTTPS 域名，完成密码与 TOTP；不需要 SSH 私钥或 VPN 客户端 |
 
 ## 部署顺序
 
 1. [VPS 安装与启用](docs/VPS.md)：准备域名和 `local/site.json`，安装/登录 Tailscale，然后执行 VPS 安装器。先备份密钥，再启动 HTTPS 并完成管理员 TOTP。
 2. [Tailscale 网络权限](docs/TAILSCALE.md)：VPS 到指定 Mac 仅允许 TCP 22，移除与此边界冲突的宽泛规则。
-3. [远端 Mac 一次性配置](docs/MAC.md)：准备标准账号、网络及公钥后，在真正的远端 Mac 上运行 `setup_mac.py`，同一条命令默认安装 tmux 并配置自动恢复。不要在本地客户端运行。
+3. 按后端系统选择：[Mac](docs/MAC.md) 运行 `setup_mac.py`，默认安装 tmux；[Windows](docs/WINDOWS.md) 运行 `setup_windows.ps1 -OnServer -Setup ...`，使用原生 PowerShell。两种安装器都只能在真正的远端服务器运行。
 4. 从 Mac 可信渠道取得回执，在 Warpgate 登记主机公钥、建立 SSH Target，分配普通用户角色。
 5. [验收、备份和恢复](docs/OPERATIONS.md)：完成真实链路、撤权、重启和恢复验收后日常使用。
 
@@ -40,6 +42,8 @@ flowchart LR
 角色不会把同一个 Mac UID 变成多个隔离的系统用户。互不信任的人应使用不同 macOS 账号与文件权限。撤销角色会关闭连接，不能保证已经脱离 SSH 的后台任务停止。
 
 ## 持久终端
+
+本节仅适用于 Mac。Windows 原生方案不使用 tmux；不保证关网页后任务继续运行，也不提供原交互会话恢复。
 
 新增 Mac 后端默认带上：登录网页 → 点击对应 Target → 自动进入该账号的 `work` 会话。关闭网页或连接中断后任务继续留在远端；下次点同一目标即可恢复。`Ctrl+b` 后按 `d` 可主动分离，`remote-resume` 可手动恢复。
 
