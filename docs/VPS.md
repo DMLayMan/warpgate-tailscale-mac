@@ -99,7 +99,7 @@ python3 scripts/wgkit.py prepare-target \
 
 自助 ticket 关闭不等于管理员被禁止创建 ticket；本方案日常不创建访问 ticket。管理员属于信任边界。
 
-建议先用单个 Mac Target。多个不互信的人需要隔离时，为每个 Mac 系统账号建立单独 Target；只增加网页账号不能隔离同一个系统 UID。
+Mac/Windows Target 的 username 使用现有系统账号，普通或管理员均可，不要求新建。多个网页用户共用该账号时会共享其权限和文件；需要隔离时为不同的已有系统账号建立不同 Target。管理员账号 Target 只授予可信用户。
 
 ## 6. 检查
 

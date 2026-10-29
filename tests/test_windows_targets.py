@@ -18,7 +18,8 @@ class WindowsReceipt(unittest.TestCase):
         key = base64.b64encode(b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20' + bytes(32)).decode()
         receipt = dict(schema_version=1, backend_os='windows', username='remoteoperator',
                        vps_tailnet_ip='100.64.1.10', server_tailnet_ip='100.64.1.30',
-                       port=22, host_public_key='ssh-ed25519 ' + key, **changes)
+                       port=22, host_public_key='ssh-ed25519 ' + key)
+        receipt.update(changes)
         # Each case writes only to a disposable directory.
         (directory / 'receipt.json').write_text(json.dumps(receipt))
         (directory / 'key-id').write_text('11111111-1111-4111-8111-111111111111')
@@ -38,6 +39,16 @@ class WindowsReceipt(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaisesRegex(ValueError, 'Conflicting'):
                 self.render(Path(d), mac_tailnet_ip='100.64.1.20')
+
+    def test_existing_administrator_and_space_names(self):
+        for user in ('Administrator','Existing.Admin','Daily User','\u7528\u6237'):
+            with self.subTest(user=user),tempfile.TemporaryDirectory() as d:
+                self.assertEqual(self.render(Path(d),username=user)['options']['username'],user)
+
+    def test_unsafe_and_unsupported_account_names(self):
+        for user in ('domain\\user','bad\nMatch all','user*','a"b','trailing ',False):
+            with self.subTest(user=user),tempfile.TemporaryDirectory() as d,self.assertRaises(ValueError):
+                self.render(Path(d),username=user)
 
 
 if __name__ == '__main__':

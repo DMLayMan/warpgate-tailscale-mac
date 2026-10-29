@@ -251,7 +251,14 @@ def prepare_target(args):
     for name,value in (('server_tailnet_ip',server),('vps_tailnet_ip',r['vps_tailnet_ip'])):
         addr=ipaddress.ip_address(value)
         if addr not in ipaddress.ip_network('100.64.0.0/10'): raise ValueError(f'{name} must be a Tailscale IPv4 address')
-    if not re.fullmatch('[a-z_][a-z0-9_-]{0,31}',r['username']): raise ValueError('Invalid Mac username')
+    backend=r.get('backend_os','macos')
+    username=r.get('username')
+    if backend=='windows':
+        valid=isinstance(username,str) and re.fullmatch(r'\w[\w. -]{0,19}',username) and username==username.strip(' .')
+    elif backend=='macos':
+        valid=isinstance(username,str) and re.fullmatch('[A-Za-z_][A-Za-z0-9_.-]{0,63}',username) and username!='root'
+    else:raise ValueError('Unsupported backend OS')
+    if not valid:raise ValueError('Invalid existing account username for '+backend)
     parts=r['host_public_key'].split()
     if len(parts)<2 or parts[0]!='ssh-ed25519': raise ValueError('Trusted Mac Ed25519 host key required')
     blob=base64.b64decode(parts[1],validate=True)

@@ -1,14 +1,14 @@
 # Tailscale 网络与账号边界
 
-VPS 与远端 Mac 加入同一个 tailnet。浏览器用户由 Warpgate 管理，无需每个人加入 tailnet。使用普通 OpenSSH，不开启 Tailscale SSH。
+VPS 与远端 Mac/Windows 加入同一个 tailnet。浏览器用户由 Warpgate 管理，无需每个人加入 tailnet。使用普通 OpenSSH，不开启 Tailscale SSH。两种后端都复用现有系统账号。
 
 ## 标签与规则
 
-`config/tailscale-policy.example.json` 是这两个专用节点的最小策略示例：
+`config/tailscale-policy.example.json` 是网关与后端节点的最小策略示例：
 
-- tag:warpgate-vps → tag:warpgate-mac：TCP 22。
-- 不授予 Mac 访问 VPS 8888，也不授予 VPS 访问 Mac 的远程桌面、其他端口。
-- 只有 tailnet 管理员可以分配标签。为两台实际设备分配对应标签，保留节点审批与其他现有设备的正常使用。
+- tag:warpgate-vps → tag:warpgate-mac / tag:warpgate-windows：TCP 22。
+- 不授予后端访问 VPS 8888，也不授予 VPS 访问后端的远程桌面、其他端口。
+- 只有 tailnet 管理员可以分配标签。为实际设备分配对应标签，保留节点审批与其他现有设备的正常使用。
 
 在已有 tailnet 中应人工合并 tagOwners、grants 和 tests，不能整体替换原策略。Tailscale 规则是叠加放行；现有 `*` 到 `*:*`、autogroup 或其他宽泛规则可能让本示例失去隔离作用。需要调整重叠规则，使 deny 测试通过；只添加一条窄规则并不能撤销旧权限。
 
@@ -16,7 +16,7 @@ VPS 与远端 Mac 加入同一个 tailnet。浏览器用户由 Warpgate 管理�
 
 ## 固定地址与授权来源
 
-记录 `tailscale ip -4` 的 VPS 和 Mac 地址。Mac 授权公钥带有 `from="VPS_TAILNET_IP"`，只接受该来源。删除并重新注册节点可能改变 IP，此时需要明确更新 Mac 授权，不应删除来源限制来绕过。
+记录 VPS 与 Mac/Windows 的 tailnet IPv4。新增网关公钥带 `from="VPS_TAILNET_IP"`，仅该来源可用；账号的原 SSH 授权按原配置保留。删除并重新注册节点可能改 IP，届时应明确迁移授权和 Address 匹配，不删除来源限制绕过。
 
 VPS 宿主机原生 Warpgate 直接连接 Mac 的 tailnet IPv4，不使用 exit node 或另一个指回自身的 SSH 跳板。确认 Mac sshd 实际日志看到的来源就是 VPS tailnet IP。
 

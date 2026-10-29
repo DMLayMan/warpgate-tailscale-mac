@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <# Configure ONLY a Windows SSH backend. No application installation or account tokens. #>
 [CmdletBinding()]
-param([switch]$OnServer, [string]$Setup, [switch]$CreateUser, [switch]$RestartSshd)
+param([switch]$OnServer, [string]$Setup, [switch]$RestartSshd)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -29,11 +29,18 @@ function Read-Setup([string]$Path) {
     $allowed = @('schemaVersion', 'serverUser', 'vpsTailnetIp', 'serverTailnetIp', 'gatewayPublicKey')
     if (@($s.PSObject.Properties.Name | Where-Object { $_ -notin $allowed }).Count) { throw 'Unknown setup field; use config/windows.example.json' }
     if (($s.schemaVersion -isnot [int] -and $s.schemaVersion -isnot [long]) -or $s.schemaVersion -ne 1) { throw 'Unsupported schemaVersion' }
-    if ($s.serverUser -isnot [string] -or $s.serverUser -cnotmatch '^[a-z_][a-z0-9_-]{0,19}$') { throw 'Use a lowercase local Windows account name, max 20 characters' }
+    $userName = Get-LocalAccountName $s.serverUser
     $vps = Assert-TailnetIPv4 $s.vpsTailnetIp
     $server = if ($s.serverTailnetIp) { Assert-TailnetIPv4 $s.serverTailnetIp } else { $null }
     $key = Get-PublicKey $s.gatewayPublicKey
-    return [pscustomobject]@{ schemaVersion=1; serverUser=$s.serverUser; vpsTailnetIp=$vps; serverTailnetIp=$server; gatewayPublicKey=$key }
+    return [pscustomobject]@{ schemaVersion=1; serverUser=$userName; vpsTailnetIp=$vps; serverTailnetIp=$server; gatewayPublicKey=$key }
+}
+
+function Get-LocalAccountName($Value) {
+    if ($Value -isnot [string] -or $Value -cnotmatch '^[\p{L}\p{N}_][\p{L}\p{N}_. -]{0,19}$' -or $Value -match '[ .]$') {
+        throw 'Use an existing local Windows account name, max 20 characters; domain/Entra principals need manual integration'
+    }
+    return $Value.ToLowerInvariant()
 }
 
 function Assert-NoReparse([string]$Path) {
@@ -80,12 +87,21 @@ function Assert-AdminOwned([string]$Path) {
     }
 }
 
-function Get-UserBlock([string]$UserName, [string]$KeyPath, [string]$ShellPath) {
-    foreach ($p in @($KeyPath,$ShellPath)) { if ($p -match '[\r\n"%]') { throw 'Unsafe managed path' } }
+function Get-UserBlock([string]$UserName, [string]$KeyPath, [string]$VpsIp, [string[]]$LegacyKeys) {
+    $UserName = Get-LocalAccountName $UserName
+    $null = Assert-TailnetIPv4 $VpsIp
+    if ($KeyPath -match '[\r\n"%]') { throw 'Unsafe managed path' }
+    $paths = @($KeyPath.Replace('\','/'))
+    foreach ($p in $LegacyKeys) {
+        if ($p -match '[\r\n"]') { throw 'Unsafe existing AuthorizedKeysFile path' }
+        $normalized = $p.Replace('\','/')
+        if ($normalized -ne 'none' -and $normalized -notin $paths) { $paths += $normalized }
+    }
+    $keyFiles = ($paths | ForEach-Object { '"' + $_ + '"' }) -join ' '
     return @"
-# BEGIN warpgate windows $UserName v1
-Match User $UserName
-    AuthorizedKeysFile "$($KeyPath.Replace('\','/'))"
+# BEGIN warpgate windows $UserName v2
+Match User "$UserName" Address $VpsIp
+    AuthorizedKeysFile $keyFiles
     AuthenticationMethods publickey
     PubkeyAuthentication yes
     PasswordAuthentication no
@@ -93,23 +109,37 @@ Match User $UserName
     DisableForwarding yes
     PermitTTY yes
     PermitUserRC no
-    ForceCommand "$($ShellPath.Replace('\','/'))" -NoLogo -NoProfile
 Match all
-# END warpgate windows $UserName v1
+# END warpgate windows $UserName v2
 "@
 }
 
 function Merge-UserBlock([string]$Original, [string]$Block, [string]$UserName) {
     $normalized = $Original.Replace("`r`n", "`n")
     $desired = $Block.Replace("`r`n", "`n").TrimEnd()
-    if ($normalized.Contains("# BEGIN warpgate windows $UserName v1")) {
-        $pattern = '(?ms)^# BEGIN warpgate windows ' + [regex]::Escape($UserName) + ' v1\n.*?^# END warpgate windows ' + [regex]::Escape($UserName) + ' v1$'
+    if ($normalized.Contains("# BEGIN warpgate windows $UserName v1")) { throw 'Old account-wide v1 block found; follow docs/WINDOWS.md migration first' }
+    if ($normalized.Contains("# BEGIN warpgate windows $UserName v2")) {
+        $pattern = '(?ms)^# BEGIN warpgate windows ' + [regex]::Escape($UserName) + ' v2\n.*?^# END warpgate windows ' + [regex]::Escape($UserName) + ' v2$'
         $matches = [regex]::Matches($normalized, $pattern)
         if ($matches.Count -ne 1 -or $matches[0].Value -cne $desired) { throw 'Conflicting managed SSH block; review migration instead of overwriting' }
         return $Original
     }
-    if ($normalized.Contains("# END warpgate windows $UserName v1")) { throw 'Incomplete managed SSH block' }
-    return $Original.TrimEnd() + "`r`n`r`n" + $desired.Replace("`n", "`r`n") + "`r`n"
+    if ($normalized.Contains("# END warpgate windows $UserName v2")) { throw 'Incomplete managed SSH block' }
+    # A per-user key path must precede the default Match Group administrators,
+    # since the first matching conditional value wins in OpenSSH.
+    $firstMatch = [regex]::Match($normalized, '(?mi)^[ \t]*Match[ \t]+')
+    $pos = if ($firstMatch.Success) { $firstMatch.Index } else { $normalized.Length }
+    $merged = $normalized.Substring(0,$pos).TrimEnd() + "`n`n" + $desired + "`n" + $normalized.Substring($pos)
+    return $merged.Replace("`n", "`r`n")
+}
+
+function Get-KeyPaths([string[]]$Effective) {
+    $line = @($Effective | Where-Object { $_ -like 'authorizedkeysfile *' })
+    if ($line.Count -ne 1) { throw 'Missing/ambiguous AuthorizedKeysFile result' }
+    $rest = $line[0].Substring(19)
+    $tokens = [regex]::Matches($rest, '"([^"\r\n]*)"|([^\s"\r\n]+)')
+    if (($tokens | ForEach-Object { $_.Value }) -join ' ' -cne $rest.Trim()) { throw 'Unsupported AuthorizedKeysFile serialization' }
+    return @($tokens | ForEach-Object { $_.Value.Trim('"') })
 }
 
 function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
@@ -136,18 +166,22 @@ function Install-WindowsBackend {
     if ($actualIp -eq $s.vpsTailnetIp) { throw 'Server and gateway must be different nodes' }
     $s.serverTailnetIp = $actualIp
     $user = Get-LocalUser -Name $s.serverUser -ErrorAction SilentlyContinue
-    if (-not $user -and -not $CreateUser) { throw 'Standard local account is missing; create it locally or explicitly pass -CreateUser' }
+    if (-not $user) { throw 'Select an existing local Windows account in serverUser; this installer never creates users' }
     $admins = Get-LocalGroup -SID 'S-1-5-32-544'
-    if ($user -and @((Get-LocalGroupMember -Group $admins) | Where-Object { $_.SID -eq $user.SID }).Count) { throw 'Refusing an administrator account' }
+    $isAdmin = @((Get-LocalGroupMember -Group $admins) | Where-Object { $_.SID.Value -eq $user.SID.Value }).Count -gt 0
+    $readerSid = if ($isAdmin) { '' } else { $user.SID.Value }
     if ($user -and -not $user.Enabled) { throw 'Account is disabled; review locally' }
-    $root = Join-Path $env:ProgramData ('WarpgateSSH-' + $s.serverUser)
+    # SID avoids unsafe/space-containing account names in managed file paths.
+    $root = Join-Path $env:ProgramData ('WarpgateSSH-' + $user.SID.Value)
     $statePath = Join-Path $root 'binding.json'
     $keyPath = Join-Path $root 'gateway_authorized_keys'
     $configPath = Join-Path $env:ProgramData 'ssh\sshd_config'
+    if ((Test-Path -LiteralPath $configPath) -and ([IO.File]::ReadAllText($configPath)).Contains("# BEGIN warpgate windows $($s.serverUser) v1")) {
+        throw 'Old account-wide v1 block found; follow docs/WINDOWS.md migration first'
+    }
     $sshDir = Join-Path $env:WINDIR 'System32\OpenSSH'
     $sshd = Join-Path $sshDir 'sshd.exe'
-    $shellPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    foreach ($p in @($root,$statePath,$keyPath,$configPath,$sshd,$shellPath)) { Assert-NoReparse $p }
+    foreach ($p in @($root,$statePath,$keyPath,$configPath,$sshd)) { Assert-NoReparse $p }
     $binding = $s | ConvertTo-Json -Compress
     if (Test-Path -LiteralPath $root) {
         Assert-AdminOwned $root
@@ -159,13 +193,6 @@ function Install-WindowsBackend {
     if ($service) {
         $serviceConfig = Get-CimInstance Win32_Service -Filter "Name='sshd'"
         if ($serviceConfig.PathName.Trim('"') -ine $sshd) { throw 'Custom sshd service command; manual integration required' }
-    }
-    if (-not $user) {
-        $password = Read-Host "Choose a NEW password for local standard account $($s.serverUser) (never stored in setup.json)" -AsSecureString
-        try { $user = New-LocalUser -Name $s.serverUser -Password $password -Description 'Warpgate SSH backend' }
-        finally { if ($password) { $password.Dispose() }; Remove-Variable password -ErrorAction SilentlyContinue }
-        $users = Get-LocalGroup -SID 'S-1-5-32-545'
-        Add-LocalGroupMember -Group $users -Member $user
     }
     $newCapability = -not (Test-Path -LiteralPath $sshd)
     if ($newCapability) {
@@ -181,12 +208,12 @@ function Install-WindowsBackend {
     }
     if (-not (Test-Path -LiteralPath $sshd)) { throw 'Windows inbox OpenSSH Server installation is incomplete' }
     $null = New-Item -ItemType Directory -Path $root -Force
-    Set-ManagedAcl $root $user.SID.Value
+    Set-ManagedAcl $root $readerSid
     if (-not (Test-Path -LiteralPath $statePath)) { Write-Utf8 $statePath $binding; Set-ManagedAcl $statePath }
     $keyLine = 'from="' + $s.vpsTailnetIp + '",restrict,pty ' + $s.gatewayPublicKey + "`n"
     if ((Test-Path -LiteralPath $keyPath) -and (Get-Content -LiteralPath $keyPath -Raw) -cne $keyLine) { throw 'Existing gateway public key binding differs' }
     Write-Utf8 $keyPath $keyLine
-    Set-ManagedAcl $keyPath $user.SID.Value
+    Set-ManagedAcl $keyPath $readerSid
     $sshData = Split-Path $configPath
     if (-not (Test-Path -LiteralPath $sshData)) {
         $null = New-Item -ItemType Directory -Path $sshData
@@ -196,7 +223,15 @@ function Install-WindowsBackend {
     $hadConfig = Test-Path -LiteralPath $configPath
     $original = if ($hadConfig) { [IO.File]::ReadAllText($configPath) } else { [IO.File]::ReadAllText((Join-Path $sshDir 'sshd_config_default')) }
     $originalBytes = if ($hadConfig) { [IO.File]::ReadAllBytes($configPath) } else { $null }
-    $block = Get-UserBlock $s.serverUser $keyPath $shellPath
+    if ($original.Contains("# BEGIN warpgate windows $($s.serverUser) v1")) { throw 'Old account-wide v1 block found; follow docs/WINDOWS.md migration first' }
+    $baselinePath = Join-Path $root 'sshd_config.baseline'
+    Assert-NoReparse $baselinePath
+    Write-Utf8 $baselinePath $original; Set-ManagedAcl $baselinePath
+    $baseline = @(Invoke-Checked $sshd @('-T','-f',$baselinePath,'-C',"user=$($s.serverUser),host=localhost,addr=$($s.vpsTailnetIp)"))
+    if ('authenticationmethods any' -notin $baseline -and 'authenticationmethods publickey' -notin $baseline) { throw 'Existing multi-factor SSH policy requires manual integration' }
+    if ('forcecommand none' -notin $baseline) { throw 'Existing ForceCommand requires manual integration; it was not weakened' }
+    $legacyKeys = @(Get-KeyPaths $baseline | Where-Object { $_.Replace('\','/') -ine $keyPath.Replace('\','/') })
+    $block = Get-UserBlock $s.serverUser $keyPath $s.vpsTailnetIp $legacyKeys
     $desired = Merge-UserBlock $original $block $s.serverUser
     $candidate = Join-Path $root 'sshd_config.candidate'
     Assert-NoReparse $candidate
@@ -207,10 +242,13 @@ function Install-WindowsBackend {
     $expected = @('port 22','authenticationmethods publickey','pubkeyauthentication yes','passwordauthentication no','kbdinteractiveauthentication no','disableforwarding yes','permittty yes','permituserrc no')
     foreach ($line in $expected) { if ($line -notin $effective) { throw "Existing SSH policy overrides required setting: $line" } }
     if (@($effective | Where-Object { $_ -like 'port *' }).Count -ne 1) { throw 'Multiple SSH ports require manual integration' }
-    $effectiveKey = (@($effective | Where-Object { $_ -like 'authorizedkeysfile *' }) -join '').Substring(19).Trim('"')
-    if ($effectiveKey -ine $keyPath.Replace('\','/')) { throw 'Existing SSH policy overrides gateway key path' }
-    $effectiveForce = (@($effective | Where-Object { $_ -like 'forcecommand *' }) -join '')
-    if ($effectiveForce -ine ('forcecommand "' + $shellPath.Replace('\','/') + '" -NoLogo -NoProfile')) { throw 'Existing SSH policy overrides PowerShell terminal' }
+    $expectedKeys = @($keyPath.Replace('\','/')) + @($legacyKeys | Where-Object { $_ -ne 'none' })
+    if ((@(Get-KeyPaths $effective) -join '|') -ine ($expectedKeys -join '|')) { throw 'Existing SSH policy overrides gateway/legacy key paths' }
+    if ('forcecommand none' -notin $effective) { throw 'Unexpected ForceCommand; existing shell must be preserved' }
+    $outsideArgs = @('-T','-C',"user=$($s.serverUser),host=localhost,addr=127.0.0.1")
+    $outsideBefore = @(Invoke-Checked $sshd (@('-f',$baselinePath) + $outsideArgs))
+    $outsideAfter = @(Invoke-Checked $sshd (@('-f',$candidate) + $outsideArgs))
+    if (($outsideBefore -join "`n") -cne ($outsideAfter -join "`n")) { throw 'Unrelated source SSH settings changed; refusing to apply' }
     $ruleName = 'WarpgateSSH-' + $s.serverUser
     $existingRule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     if ($existingRule) {

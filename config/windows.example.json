@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "serverUser": "remoteoperator",
+  "serverUser": "REPLACE_WITH_EXISTING_USERNAME",
   "vpsTailnetIp": "100.64.1.10",
   "serverTailnetIp": null,
   "gatewayPublicKey": "REPLACE_WITH_GATEWAY_ED25519_PUBLIC_KEY_WITHOUT_COMMENT"

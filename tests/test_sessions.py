@@ -232,15 +232,21 @@ class MacEntryPoint(unittest.TestCase):
         self.keyfile = self.ssh/'warpgate_authorized_keys/serveruser'
         self.dropin = self.ssh/'sshd_config.d/999-warpgate-serveruser.conf'
 
-    def execute(self, session_failure=False, extra=()):
+    def execute(self, session_failure=False, extra=(), baseline_policy=(), outside_changed=False):
         def remap(value):
             value = str(value)
             return self.ssh/value.removeprefix('/etc/ssh/') if value.startswith('/etc/ssh/') else Path(value)
         def output(command, **kwargs):
-            if command[0].endswith('dsmemberutil'): return 'user is not a member of the group\n'
-            return '\n'.join(['authenticationmethods publickey', 'pubkeyauthentication yes',
+            if command[0].endswith('dsmemberutil'): raise AssertionError('Existing administrator accounts must not be rejected')
+            if not self.dropin.exists() or 'addr=127.0.0.1' in command[-1]:
+                baseline=dict(line.split(' ',1) for line in ['authenticationmethods any','forcecommand none','authorizedkeysfile .ssh/authorized_keys',
+                                  'pubkeyauthentication yes','passwordauthentication yes','disableforwarding no'])
+                baseline.update(baseline_policy)
+                if outside_changed and self.dropin.exists():baseline['disableforwarding']='yes'
+                return '\n'.join(k+' '+v for k,v in baseline.items())
+            return '\n'.join(['authenticationmethods publickey','forcecommand none','pubkeyauthentication yes',
                 'passwordauthentication no', 'kbdinteractiveauthentication no', 'disableforwarding yes',
-                'permittty yes', 'permituserrc no', 'authorizedkeysfile '+str(self.keyfile)])
+                'permittty yes', 'permituserrc no', 'authorizedkeysfile /etc/ssh/warpgate_authorized_keys/serveruser .ssh/authorized_keys'])
         account = types.SimpleNamespace(pw_uid=502)
         result = {'enabled': True, 'version': '3.7c', 'socket': 'warpgate-work', 'session': 'work'}
         with mock.patch.object(sys, 'argv', [*self.argv, *extra]), \
@@ -285,6 +291,29 @@ class MacEntryPoint(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Conflicting'):
             self.execute()
         self.assertEqual(self.keyfile.read_bytes(), previous)
+
+    def test_old_account_wide_policy_requires_explicit_migration(self):
+        old='Match User serveruser\n    PasswordAuthentication no\nMatch all\n'
+        self.dropin.write_text(old)
+        with self.assertRaisesRegex(ValueError,'Old account-wide'):
+            self.execute(extra=['--without-tmux'])
+        self.assertEqual(self.dropin.read_text(),old)
+        self.assertFalse(self.keyfile.exists())
+
+    def test_existing_stronger_policy_is_never_weakened(self):
+        for policy in ({'authenticationmethods':'publickey,keyboard-interactive'}, {'forcecommand':'/usr/local/bin/restricted-shell'}):
+            with self.subTest(policy=policy), self.assertRaisesRegex(ValueError,'manual integration'):
+                self.execute(extra=['--without-tmux'],baseline_policy=policy)
+            self.assertFalse(self.keyfile.exists())
+            self.assertFalse(self.dropin.exists())
+            self.assertFalse(self.receipt.exists())
+
+    def test_other_source_change_rolls_back_new_ssh_files(self):
+        with self.assertRaisesRegex(ValueError,'Unrelated source'):
+            self.execute(extra=['--without-tmux'],outside_changed=True)
+        self.assertFalse(self.keyfile.exists())
+        self.assertFalse(self.dropin.exists())
+        self.assertFalse(self.receipt.exists())
 
 
 TMUX = os.environ.get('TMUX_TEST_BINARY') or shutil.which('tmux')

@@ -28,22 +28,32 @@ try {
     Write-Utf8 $p ($valid | ConvertTo-Json)
     $s = Read-Setup $p
     Assert-True ($s.serverUser -eq 'remoteoperator' -and -not $s.serverTailnetIp) 'Automatic local address input failed'
-    foreach ($bad in @('Administrator','user name',"safe`nMatch all",'domain\user',('x'*21))) {
+    foreach ($good in @('Administrator','Daily User','existing.admin')) {
+        $valid.serverUser=$good; Write-Utf8 $p ($valid | ConvertTo-Json)
+        Assert-True ((Read-Setup $p).serverUser -ceq $good.ToLowerInvariant()) 'Existing account rejected'
+    }
+    foreach ($bad in @('user*','user?',"safe`nMatch all",'domain\user',('x'*21),'trailing ')) {
         $valid.serverUser=$bad; Write-Utf8 $p ($valid | ConvertTo-Json)
         Assert-Rejected { Read-Setup $p }
     }
     $valid.serverUser='remoteoperator'
     $valid.schemaVersion=1.1; Write-Utf8 $p ($valid | ConvertTo-Json); Assert-Rejected { Read-Setup $p }
     $valid.schemaVersion=1; $valid['password']='synthetic-disallowed-field'; Write-Utf8 $p ($valid | ConvertTo-Json); Assert-Rejected { Read-Setup $p }
-    $block=Get-UserBlock 'remoteoperator' 'C:\ProgramData\WarpgateSSH-test\gateway_authorized_keys' 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    $block=Get-UserBlock 'remoteoperator' 'C:\ProgramData\WarpgateSSH-test\gateway_authorized_keys' '100.64.1.10' @('.ssh/authorized_keys')
     $original="Port 22`r`nMatch Group administrators`r`n    AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys`r`n"
     $merged=Merge-UserBlock $original $block 'remoteoperator'
-    Assert-True ($merged.StartsWith($original.TrimEnd())) 'Unrelated SSH configuration was changed'
+    Assert-True ($merged.IndexOf('Match User') -lt $merged.IndexOf('Match Group administrators')) 'User block must precede shared administrator key rules'
+    Assert-True ($merged.Contains('AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys')) 'Existing administrator rule was removed'
     Assert-True ((Merge-UserBlock $merged $block 'remoteoperator') -ceq $merged) 'Repeated setup changed the SSH block'
     Assert-Rejected { Merge-UserBlock $merged ($block.Replace('PasswordAuthentication no','PasswordAuthentication yes')) 'remoteoperator' }
     Assert-Rejected { Merge-UserBlock ($merged+$merged) $block 'remoteoperator' }
-    Assert-Rejected { Get-UserBlock 'remoteoperator' "bad`npath" 'C:\Windows\powershell.exe' }
-    foreach ($line in @('DisableForwarding yes','PasswordAuthentication no','PermitTTY yes','ForceCommand "C:/Windows/')) { Assert-True ($block.Contains($line)) "Missing control: $line" }
+    Assert-Rejected { Get-UserBlock 'remoteoperator' "bad`npath" '100.64.1.10' @('.ssh/authorized_keys') }
+    foreach ($line in @('DisableForwarding yes','PasswordAuthentication no','PermitTTY yes','Match User "remoteoperator" Address 100.64.1.10')) { Assert-True ($block.Contains($line)) "Missing control: $line" }
+    Assert-True (-not $block.Contains('ForceCommand')) 'Existing default shell must be preserved'
+    $parsed=@(Get-KeyPaths @('authorizedkeysfile "C:/ProgramData/gateway_keys" .ssh/authorized_keys'))
+    Assert-True ($parsed.Count -eq 2 -and $parsed[0] -eq 'C:/ProgramData/gateway_keys' -and $parsed[1] -eq '.ssh/authorized_keys') 'Existing key-list parsing failed'
+    Assert-True (-not (Get-Command Install-WindowsBackend).ScriptBlock.ToString().Contains('New-LocalUser')) 'Installer must never create accounts'
+    Assert-Rejected { Merge-UserBlock '# BEGIN warpgate windows remoteoperator v1' $block 'remoteoperator' }
     if ($env:OS -eq 'Windows_NT') {
         # The current user keeps read access, but only SYSTEM/Administrators can write.
         $f=Join-Path $dir 'acl.txt'; Write-Utf8 $f 'synthetic fixture'
@@ -58,10 +68,23 @@ try {
             $emptyPassword = if ($PSVersionTable.PSVersion.Major -lt 7) { '""' } else { '' }
             $null=Invoke-Checked (Join-Path (Split-Path $sshd) 'ssh-keygen.exe') @('-q','-t','ed25519','-N',$emptyPassword,'-f',$hostPath)
             $native=Join-Path $dir 'sshd_config'
-            Write-Utf8 $native ("Port 22`nHostKey " + $hostPath.Replace('\','/') + "`n" + $block)
+            $nativeUser=Get-LocalAccountName $env:USERNAME
+            $baseConfig="Port 22`nHostKey " + $hostPath.Replace('\','/') + "`nPasswordAuthentication yes`n" + $original.Substring($original.IndexOf('Match Group'))
+            Write-Utf8 $native $baseConfig
+            $before=@(Invoke-Checked $sshd @('-T','-f',$native,'-C',"user=$nativeUser,host=localhost,addr=100.64.1.10"))
+            $legacy=@(Get-KeyPaths $before)
+            $nativeBlock=Get-UserBlock $nativeUser 'C:\ProgramData\WarpgateSSH-test\gateway_authorized_keys' '100.64.1.10' $legacy
+            Write-Utf8 $native (Merge-UserBlock $baseConfig $nativeBlock $nativeUser)
             $null=Invoke-Checked $sshd @('-t','-f',$native)
-            $out=Invoke-Checked $sshd @('-T','-f',$native,'-C','user=remoteoperator,host=localhost,addr=100.64.1.10')
+            $out=@(Invoke-Checked $sshd @('-T','-f',$native,'-C',"user=$nativeUser,host=localhost,addr=100.64.1.10"))
             Assert-True ('passwordauthentication no' -in $out -and 'disableforwarding yes' -in $out) 'Windows sshd rejected effective controls'
+            Assert-True ((Get-KeyPaths $out)[0] -eq 'C:/ProgramData/WarpgateSSH-test/gateway_authorized_keys') 'Administrator used shared key path instead of scoped gateway identity'
+            Assert-True ((Get-KeyPaths $out | Select-Object -Skip 1) -join '|' -eq ($legacy -join '|')) 'Existing key paths were lost'
+            $outside=@(Invoke-Checked $sshd @('-T','-f',$native,'-C',"user=$nativeUser,host=localhost,addr=100.64.1.99"))
+            Assert-True ('passwordauthentication yes' -in $outside -and 'disableforwarding no' -in $outside) 'Other source access was modified'
+            Assert-True ((Get-KeyPaths $outside) -join '|' -eq ($legacy -join '|')) 'Other source key paths were modified'
+            $other=@(Invoke-Checked $sshd @('-T','-f',$native,'-C','user=unrelated,host=localhost,addr=100.64.1.10'))
+            Assert-True (-not (($other -join ' ').Contains('gateway_authorized_keys'))) 'Gateway key leaked to another account'
         } else { Write-Output 'SKIP: Windows native sshd parser unavailable' }
     } else {
         Assert-Rejected { & $source -OnServer -Setup $p }

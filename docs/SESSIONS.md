@@ -2,7 +2,7 @@
 
 ## 新后端默认行为
 
-按 [MAC.md](MAC.md) 准备输入并执行 `setup_mac.py --on-server ...`，默认一并安装 tmux。无需 Homebrew，不运行 `curl | sh`，不读取其他账号的 shell 配置。安装入口必须是远端 Mac、root 和明确的标准账号；下载、版本执行及用户文件写入会先降权到该账号。
+按 [MAC.md](MAC.md) 准备输入并执行 `setup_mac.py --on-server ...`，默认一并安装 tmux。无需 Homebrew，不运行 `curl | sh`，不读取其他账号的 shell 配置。安装入口必须是远端 Mac、root 和明确指定的已有账号（普通或管理员均可）；下载、版本执行及用户文件写入会先降权到该账号。
 
 固定版本和 SHA256 在 `config/versions.lock.json` 的 `tmux_macos`。来源为 [tmux 官方预编译仓库](https://github.com/tmux/tmux-builds/releases/tag/v3.7c)，同时校验压缩包和二进制，拒绝非预期归档项；保留上游许可证归档。该发布物要求 macOS 15+。用户已安装的其他 tmux 不升级、不卸载。
 

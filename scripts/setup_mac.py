@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run ONLY on the remote Mac, with a dedicated non-admin account."""
+"""Run ONLY on the remote Mac; reuse an explicitly selected existing account."""
 import argparse
 import base64
 import ipaddress
@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import pwd
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -84,11 +85,24 @@ def public_key(path):
     if len(blob)!=51 or blob[:19]!=b'\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20': raise ValueError('Malformed Ed25519 public key')
     return ' '.join(parts[:2])
 
-def ssh_settings(username):
-    if not re.fullmatch('[a-z_][a-z0-9_-]{0,31}',username): raise ValueError('Invalid username')
-    return f'''# Managed by warpgate-tailscale-mac; scoped to this account only.
-Match User {username}
-    AuthorizedKeysFile /etc/ssh/warpgate_authorized_keys/{username}
+def validate_username(username):
+    if not re.fullmatch('[A-Za-z_][A-Za-z0-9_.-]{0,63}',username): raise ValueError('Invalid Mac short username')
+
+def effective_settings(username, source):
+    output=subprocess.check_output(['/usr/sbin/sshd','-T','-C',f'user={username},host=localhost,addr={source}'],text=True)
+    return dict(line.split(' ',1) for line in output.splitlines() if ' ' in line)
+
+def ssh_settings(username, vps, legacy_keys):
+    validate_username(username);vps=tailnet(vps)
+    paths=[f'/etc/ssh/warpgate_authorized_keys/{username}']
+    for path in legacy_keys:
+        if not isinstance(path,str) or any(c in path for c in '\r\n"\\'):
+            raise ValueError('Unsupported existing AuthorizedKeysFile path; review manually')
+        if path not in paths and path!='none':paths.append(path)
+    quoted=' '.join('"'+p+'"' for p in paths)
+    return f'''# Managed by warpgate-tailscale-mac; existing account, VPS source only (v2).
+Match User {username} Address {vps}
+    AuthorizedKeysFile {quoted}
     AuthenticationMethods publickey
     PubkeyAuthentication yes
     PasswordAuthentication no
@@ -112,11 +126,9 @@ def main():
     mode.add_argument('--sessions-only', action='store_true', help='Add persistent sessions to an already prepared server account')
     args=p.parse_args()
     require_server(args.on_server)
-    ssh_settings(args.user)
+    validate_username(args.user)
     account=pwd.getpwnam(args.user)
-    if account.pw_uid<500: raise ValueError('A normal non-admin user account is required')
-    membership=subprocess.check_output(['/usr/bin/dsmemberutil','checkmembership','-U',args.user,'-G','admin'],text=True)
-    if 'not a member' not in membership: raise ValueError('Use a dedicated non-admin Mac account')
+    if account.pw_uid<500: raise ValueError('Choose an existing regular Mac account, not root or a system account')
     if args.sessions_only:
         print('MAC_SESSIONS_CONFIGURED '+json.dumps(session_setup(account)))
         return
@@ -124,7 +136,6 @@ def main():
         p.error('--gateway-key, --vps-tailnet-ip, --mac-tailnet-ip and --receipt are required for SSH setup')
     vps=tailnet(args.vps_tailnet_ip);mac=tailnet(args.mac_tailnet_ip)
     key=public_key(args.gateway_key)
-    config=ssh_settings(args.user)
     main_config=Path('/etc/ssh/sshd_config').read_text()
     if not re.search(r'^\s*Include\s+/etc/ssh/sshd_config\.d/\*',main_config,re.M|re.I):
         raise ValueError('sshd_config does not include /etc/ssh/sshd_config.d/*; add/review Include manually first')
@@ -132,6 +143,14 @@ def main():
     dest=keydir/args.user
     # Match blocks must follow macOS's global UsePAM/Subsystem directives.
     dropin=Path(f'/etc/ssh/sshd_config.d/999-warpgate-{args.user}.conf')
+    if dropin.exists() and 'existing account, VPS source only (v2)' not in dropin.read_text():
+        raise ValueError('Old account-wide SSH policy detected; follow docs/MAC.md migration before reusing this account')
+    baseline=effective_settings(args.user,vps)
+    if baseline.get('authenticationmethods') not in ('any','publickey') or baseline.get('forcecommand') not in (None,'none'):
+        raise ValueError('Existing multi-factor/forced-command SSH policy requires manual integration; it was not weakened')
+    legacy=shlex.split(baseline['authorizedkeysfile'])
+    config=ssh_settings(args.user,vps,[p for p in legacy if p!=str(dest)])
+    outside=effective_settings(args.user,'127.0.0.1')
     keyline=f'from="{vps}",restrict,pty {key} warpgate-gateway\n'
     key_exists=existing_matches(dest,keyline,0o644)
     dropin_exists=existing_matches(dropin,config,0o600)
@@ -163,14 +182,17 @@ def main():
                 created_dropin=True
                 os.fchmod(f.fileno(),0o600);f.write(config)
         subprocess.run(['/usr/sbin/sshd','-t'],check=True)
-        effective=subprocess.check_output(['/usr/sbin/sshd','-T','-C',f'user={args.user},host=localhost,addr={vps}'],text=True)
-        settings=dict(line.split(' ',1) for line in effective.splitlines() if ' ' in line)
+        settings=effective_settings(args.user,vps)
         expected={'authenticationmethods':'publickey','pubkeyauthentication':'yes',
                   'passwordauthentication':'no','kbdinteractiveauthentication':'no',
-                  'disableforwarding':'yes','permittty':'yes','permituserrc':'no',
-                  'authorizedkeysfile':str(dest)}
+                  'disableforwarding':'yes','permittty':'yes','permituserrc':'no'}
         for name,value in expected.items():
             if settings.get(name)!=value: raise ValueError(f'Existing SSH config overrides {name}; installation rolled back')
+        expected_paths=shlex.split(config.split('AuthorizedKeysFile ',1)[1].splitlines()[0])
+        if shlex.split(settings['authorizedkeysfile'])!=expected_paths:
+            raise ValueError('Existing SSH policy overrides gateway/legacy key paths; installation rolled back')
+        if effective_settings(args.user,'127.0.0.1')!=outside:
+            raise ValueError('Unrelated source SSH settings changed; installation rolled back')
         if not args.without_tmux:
             sessions=session_setup(account)
             data['terminal_session']={k:sessions[k] for k in ('enabled','version','socket','session')}

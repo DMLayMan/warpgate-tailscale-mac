@@ -1,6 +1,14 @@
 # 验证范围
 
-## 当前云端结果（2026-10-28）
+## 现有账号复用（2026-10-29）
+
+Mac/Windows 安装器改为复用已有普通或管理员账号，移除 Windows 新建用户入口。网关公钥放在单账号托管文件中，来源限定为指定 VPS；保留原 AuthorizedKeysFile 列表和其他来源的配置。Windows 不再强制 PowerShell，保留 DefaultShell/profile。遇到原有更强认证或 ForceCommand 时停止，旧账号级规则需按平台文档显式迁移。
+
+本地 macOS arm64 执行 44 项 Python 测试全部通过，无跳过：包含真实 Warpgate 初始化/Caddy 校验、TLS/私钥加密、原生 sshd 来源匹配解析、临时家目录 tmux 首次安装和真实 PTY 断线恢复。PowerShell 7.6.9 执行 40 项隔离断言通过；Windows NTFS/原生 sshd 检查需由 Windows runner 完成。
+
+新增回归覆盖管理员账号输入、保留原密钥路径、其他来源配置不变、更强认证/ForceCommand 拒绝降级、旧版账号全局规则拒绝静默替换，以及异常时回滚新增 SSH 文件。云端结果在本提交推送后补充。此改动未运行任何真实服务器安装器，未创建账号、修改客户端 SSH 或操作在线后端。
+
+## 上一版云端基线（2026-10-28）
 
 提交 `397b10d` 的 [Actions 40709211660](https://github.com/DMLayMan/warpgate-tailscale-mac/actions/runs/40709211660) 三组任务全部通过：
 
@@ -58,8 +66,8 @@ python3 scripts/check_tracked.py --history
 
 尚未声称完成：VPS 的 systemd 实际运行、阿里云防火墙、管理员 TOTP 的人工登记、tailnet 策略保存、远端 Mac 系统设置与安装、真实跨网链路、生产容量、重启/休眠、完整恢复演练。需要按 OPERATIONS.md 的清单现场验收。
 
-## Windows 原生后端检查
+## 早期 Windows 原生后端检查
 
-新增 `setup_windows.ps1` 和 `windows-config` CI 任务。PowerShell 5.1/7 的隔离测试覆盖输入校验、配置追加/重复执行、冲突拒绝和强制终端设置；Windows runner 另检查临时文件的 NTFS ACL，并下载固定版本的官方便携 sshd 检查原生配置解析。非 Windows 本地测试另验证错误平台拒绝。测试不创建真实系统账号、不安装系统功能、不启动服务。
+早期新增 `setup_windows.ps1` 和 `windows-config` CI 任务。该版本 PowerShell 5.1/7 的隔离测试覆盖输入校验、配置追加/重复执行、冲突拒绝和当时的强制终端设置；Windows runner 另检查临时文件的 NTFS ACL，并下载固定版本的官方便携 sshd 检查原生配置解析。非 Windows 本地测试另验证错误平台拒绝。测试不创建真实系统账号、不安装系统功能、不启动服务。本节是历史记录，现有账号版本不再强制终端，见本文顶部。
 
 Mac 上运行 PowerShell 7 的 31 项断言通过；Python 共 39 项测试，37 项通过，2 项因未提供真实 Warpgate 二进制和 tmux 下载夹具跳过。Windows 回执可生成独立目标，旧 Mac 回执兼容。实际 Windows 管理员安装、网关认证和重启验收仍需目标机器参与；不把跨平台单元测试称为 Windows 全链路验收。

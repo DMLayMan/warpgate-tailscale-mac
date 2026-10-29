@@ -56,14 +56,15 @@ class Configuration(unittest.TestCase):
         with self.assertRaises(ValueError):wg.require_vps(False)
 
     def test_mac_authorization_is_source_restricted_and_scoped(self):
-        text=mac.ssh_settings('remoteoperator')
-        self.assertIn('Match User remoteoperator',text)
+        text=mac.ssh_settings('Existing.Admin','100.64.1.10',['.ssh/authorized_keys'])
+        self.assertIn('Match User Existing.Admin Address 100.64.1.10',text)
         self.assertIn('DisableForwarding yes',text)
         self.assertIn('PasswordAuthentication no',text)
-        self.assertIn('/etc/ssh/warpgate_authorized_keys/remoteoperator',text)
+        self.assertIn('/etc/ssh/warpgate_authorized_keys/Existing.Admin',text)
+        self.assertIn('".ssh/authorized_keys"',text)
         self.assertTrue(text.endswith('Match all\n'))
         for value in ('root\nMatch all','name with spaces','-root'):
-            with self.assertRaises(ValueError):mac.ssh_settings(value)
+            with self.assertRaises(ValueError):mac.ssh_settings(value,'100.64.1.10',[])
 
     def test_tailnet_addresses_only(self):
         self.assertEqual(mac.tailnet('100.64.1.2'),'100.64.1.2')
@@ -114,17 +115,21 @@ class Configuration(unittest.TestCase):
             subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(d/'host')],check=True)
             include=d/'conf.d';include.mkdir()
             (include/'100-macos.conf').write_text('UsePAM yes\nAcceptEnv LANG LC_*\nSubsystem sftp /usr/libexec/sftp-server\n')
-            (include/'999-warpgate-remoteoperator.conf').write_text(mac.ssh_settings('remoteoperator'))
+            (include/'999-warpgate-remoteoperator.conf').write_text(mac.ssh_settings('remoteoperator','100.64.1.10',['.ssh/authorized_keys','.ssh/legacy_keys']))
             cfg=d/'sshd_config'
             cfg.write_text(f'Port 18899\nListenAddress 127.0.0.1\nHostKey {d}/host\nInclude {include}/*\nAuthorizedKeysFile .ssh/authorized_keys\n')
             subprocess.run(['/usr/sbin/sshd','-t','-f',str(cfg)],check=True)
             result=subprocess.check_output(['/usr/sbin/sshd','-T','-f',str(cfg),'-C','user=remoteoperator,host=localhost,addr=100.64.1.10'],text=True)
             self.assertIn('disableforwarding yes',result)
             self.assertIn('passwordauthentication no',result)
-            self.assertIn('authorizedkeysfile /etc/ssh/warpgate_authorized_keys/remoteoperator',result)
+            self.assertIn('authorizedkeysfile /etc/ssh/warpgate_authorized_keys/remoteoperator .ssh/authorized_keys .ssh/legacy_keys',result)
             unrelated=subprocess.check_output(['/usr/sbin/sshd','-T','-f',str(cfg),'-C','user=unrelated,host=localhost,addr=100.64.1.10'],text=True)
             self.assertIn('authorizedkeysfile .ssh/authorized_keys\n',unrelated)
             self.assertIn('disableforwarding no',unrelated)
+            outside=subprocess.check_output(['/usr/sbin/sshd','-T','-f',str(cfg),'-C','user=remoteoperator,host=localhost,addr=100.64.1.99'],text=True)
+            self.assertIn('authorizedkeysfile .ssh/authorized_keys\n',outside)
+            self.assertIn('passwordauthentication yes',outside)
+            self.assertIn('disableforwarding no',outside)
 
 @unittest.skipUnless(os.getenv('WG_TEST_BINARY'),'Set WG_TEST_BINARY to run real loopback initialization')
 class RealBootstrap(unittest.TestCase):
