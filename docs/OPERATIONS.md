@@ -6,12 +6,14 @@
 
 - 域名解析到正确 VPS，浏览器证书有效，HTTPS 自动跳转及 WebSocket 连接正常。
 - 普通用户只看到授权目标；密码后必须完成 TOTP，未登记 TOTP 被引导登记且不能直接绕过。
-- VPS 实际进程到 Mac tailnet TCP 22 可达，来源地址与 Mac 公钥 from 限制一致。
-- 两个账号同时操作；无权限账号拒绝；撤销一个用户的角色后，其已有网页终端关闭，另一用户继续工作。
-- 确认 Mac 主机公钥已固定；未知公钥和公钥变化拒绝连接，旧算法关闭。
+- VPS 实际进程到 Mac/Windows tailnet TCP 22 可达，来源地址与后端公钥 from 限制一致。
+- 在网页运行 `whoami`，核对登录的是选择的现有系统账号，原文件/工具权限符合预期。Windows 管理员 Target 的网关公钥不能用来登录其他管理员账号。
+- 验证该账号原有密钥路径保留、其他来源的 SSH 访问保持原设置；指定 VPS 来源只允许公钥且不能建立 SSH 转发。不通过降低已有多因素认证来接入。
+- 两个网页账号同时操作；无权限账号拒绝；撤销一个用户的角色后，其已有网页终端关闭，另一用户继续工作。共用一个系统账号仍共享该账号的权限、文件及 Mac tmux 会话。
+- 确认后端主机公钥已固定；未知公钥和公钥变化拒绝连接，旧算法关闭。
 - 播放一次录制的终端会话。录像可能记录屏幕上的秘密，按敏感数据管理。
 - 从外网确认 8888、2222、数据库和远程桌面端口没有暴露；管理 SSH 只有预期范围可达。
-- VPS 与 Mac 分别重启，验证 Tailscale、证书、应用和 SSH 恢复；验证 Mac FileVault/休眠边界。
+- VPS 与各后端分别重启，验证 Tailscale、证书、应用和 SSH 恢复；验证 Mac FileVault/Windows BitLocker 预启动解锁、锁屏/注销和休眠边界。Windows 不提供持久终端恢复。
 - 在隔离临时环境恢复备份并确认解密与连接，再测试一次更新回退。
 
 ## 备份
@@ -37,7 +39,7 @@ sudo bash scripts/backup-vps.sh --on-vps \
 3. 从独立秘密备份恢复 secrets/encryption.env 与 secrets/backend-ca.key，分别设置 600，secrets 目录 700、root 所有。
 4. 数据及 config 归 wg-gateway，数据目录 700；public 的 CA/配置仅包含公开信息，其他秘密文件不能复制进去。
 5. `warpgate check`、Caddy validate、隔离回环启动检查；确认没有“无法解密凭据”的日志，再验证授权、TOTP、录像和 SSH 登录。
-6. 生产切换前安排独占节点身份和 Tailscale 注册/来源 IP 验收。VPS tailnet IP 改变时同步更新 Mac from 限制。
+6. 生产切换前安排独占节点身份和 Tailscale 注册/来源 IP 验收。VPS tailnet IP 改变时同步更新各后端的公钥 from、Match Address 及 Windows 防火墙来源限制。
 
 ## 更新与回退
 

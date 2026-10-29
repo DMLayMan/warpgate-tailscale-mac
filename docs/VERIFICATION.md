@@ -6,7 +6,11 @@ Mac/Windows 安装器改为复用已有普通或管理员账号，移除 Windows
 
 本地 macOS arm64 执行 44 项 Python 测试全部通过，无跳过：包含真实 Warpgate 初始化/Caddy 校验、TLS/私钥加密、原生 sshd 来源匹配解析、临时家目录 tmux 首次安装和真实 PTY 断线恢复。PowerShell 7.6.9 执行 40 项隔离断言通过；Windows NTFS/原生 sshd 检查需由 Windows runner 完成。
 
-新增回归覆盖管理员账号输入、保留原密钥路径、其他来源配置不变、更强认证/ForceCommand 拒绝降级、旧版账号全局规则拒绝静默替换，以及异常时回滚新增 SSH 文件。云端结果在本提交推送后补充。此改动未运行任何真实服务器安装器，未创建账号、修改客户端 SSH 或操作在线后端。
+新增回归覆盖管理员账号输入、保留原密钥路径、其他来源配置不变、更强认证/ForceCommand 拒绝降级、旧版账号全局规则拒绝静默替换，以及异常时回滚新增 SSH 文件。
+
+实现提交 `8173f99` 的 [Actions 40791879463](https://github.com/DMLayMan/warpgate-tailscale-mac/actions/runs/40791879463) 三组任务全部通过：Windows Server 2022 的 PowerShell 5.1/7、临时 NTFS ACL 与原生 sshd 解析；Ubuntu 24.04 的真实初始化/TLS/加密及 systemd 校验；macOS 15 的官方 tmux 首次安装和 PTY 恢复。Windows 测试以 runner 的现有账号解析规则，确认网关密钥路径优先、旧密钥路径保留、其他来源配置不变，其他账号不会得到该网关密钥路径。
+
+此改动未运行任何真实服务器安装器，未创建账号、修改客户端 SSH 或操作在线后端。真实 Mac/Windows 的密钥登录、账号权限、Tailscale 跨网、网页访问和重启验收仍须按 OPERATIONS.md 逐机执行。
 
 ## 上一版云端基线（2026-10-28）
 
